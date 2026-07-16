@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <CustomAction Id="CleanAppData" Directory="APPLICATIONFOLDER" ExeCommand="cmd /c rd /s /q &quot;[AppDataFolder]\daily-plan&quot; 2&gt;nul &amp;&amp; rd /s /q &quot;[LocalAppDataFolder]\daily-plan&quot; 2&gt;nul" Return="ignore" />
+    
+    <CustomAction Id="RemoveAutoStart" Directory="APPLICATIONFOLDER" ExeCommand="reg delete &quot;HKCU\Software\Microsoft\Windows\CurrentVersion\Run&quot; /v daily-plan /f 2&gt;nul" Return="ignore" />
+    
+    <InstallExecuteSequence>
+      <Custom Action="CleanAppData" After="RemoveFiles">REMOVE="ALL"</Custom>
+      <Custom Action="RemoveAutoStart" After="CleanAppData">REMOVE="ALL"</Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "daily-plan",
+  "version": "0.1.0",
+  "identifier": "com.daily.plan",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "每日计划",
+        "width": 300,
+        "height": 600,
+        "minWidth": 300,
+        "maxWidth": 300,
+        "minHeight": 300,
+        "decorations": false,
+        "transparent": false,
+        "resizable": false,
+        "visible": false,
+        "alwaysOnTop": true,
+        "backgroundColor": "#FFD028"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "msi",
+    "icon": [
+      "icons/daily_plan_logo.ico"
+    ],
+    "resources": [],
+    "externalBin": [],
+    "copyright": "Copyright (C) 2024 daily-plan",
+    "category": "Utility",
+    "shortDescription": "每日计划管理工具",
+    "longDescription": "一个简洁的每日计划管理应用，支持任务管理、计时器和桌面整理功能",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "wix": {
+        "language": "zh-CN",
+        "upgradeCode": "12345678-1234-1234-1234-1234567890AB"
+      }
+    }
+  }
+}
