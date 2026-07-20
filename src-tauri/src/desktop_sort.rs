@@ -971,3 +971,245 @@ pub fn close_desktop_analyze<R: Runtime>(window: tauri::Window<R>) {
         let _ = win.set_position(tauri::PhysicalPosition::new(-3000, -3000));
     }
 }
+
+// ==================== 重复文件清理功能 ====================
+
+/// 重复文件组信息
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateFileGroup {
+    /// 文件哈希值
+    pub hash: String,
+    /// 文件大小（字节）
+    pub size: u64,
+    /// 重复文件列表（按名称排序）
+    pub files: Vec<DuplicateFile>,
+}
+
+/// 重复文件信息
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateFile {
+    /// 文件名
+    pub name: String,
+    /// 文件路径
+    pub path: String,
+    /// 所在文件夹
+    pub folder: String,
+}
+
+/// 计算文件的 SHA256 哈希值
+fn compute_file_hash(path: &Path) -> Result<String, String> {
+    use sha2::{Sha256, Digest};
+    use std::io::Read;
+
+    let mut file = fs::File::open(path)
+        .map_err(|e| format!("打开文件失败 {}: {}", path.display(), e))?;
+
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+
+    loop {
+        let bytes_read = file.read(&mut buffer)
+            .map_err(|e| format!("读取文件失败 {}: {}", path.display(), e))?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+
+    let result = hasher.finalize();
+    Ok(format!("{:x}", result))
+}
+
+/// 将文件移到回收站（Windows）
+fn move_to_recycle_bin(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::UI::Shell::{SHFileOperationW, SHFILEOPSTRUCTW};
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStrExt;
+
+        const FO_DELETE: u32 = 0x0003;
+        const FOF_ALLOWUNDO: u16 = 0x0040;
+        const FOF_NOCONFIRMATION: u16 = 0x0010;
+        const FOF_SILENT: u16 = 0x0004;
+        const FOF_NOERRORUI: u16 = 0x0400;
+
+        let path_str = path.to_string_lossy().to_string();
+        let mut wide_path: Vec<u16> = OsString::from(&path_str)
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .chain(std::iter::once(0))
+            .collect();
+
+        let mut file_op: SHFILEOPSTRUCTW = unsafe { std::mem::zeroed() };
+        file_op.wFunc = FO_DELETE;
+        file_op.pFrom = wide_path.as_mut_ptr();
+        file_op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT | FOF_NOERRORUI;
+
+        let result = unsafe { SHFileOperationW(&mut file_op) };
+
+        if result != 0 {
+            return Err(format!("移入回收站失败 (错误码: {})", result));
+        }
+
+        if file_op.fAnyOperationsAborted != 0 {
+            return Err("操作被中断".to_string());
+        }
+
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("仅支持 Windows 平台".to_string())
+    }
+}
+
+/// 扫描四个文件夹中的重复文件
+pub fn find_duplicate_files() -> Result<Vec<DuplicateFileGroup>, String> {
+    let desktop_path_str = get_desktop_path()?;
+    let desktop_path = Path::new(&desktop_path_str);
+
+    let folders = [
+        "程序快捷方式",
+        "其他快捷方式",
+        "桌面整理文件",
+        "桌面图片文件",
+    ];
+
+    let mut files_by_hash: std::collections::HashMap<String, Vec<DuplicateFile>> = std::collections::HashMap::new();
+    let mut size_map: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    let mut errors = Vec::new();
+
+    for folder_name in &folders {
+        let folder_path = desktop_path.join(folder_name);
+        if !folder_path.exists() {
+            continue;
+        }
+
+        let entries = match fs::read_dir(&folder_path) {
+            Ok(e) => e,
+            Err(e) => {
+                errors.push(format!("读取文件夹 {} 失败: {}", folder_name, e));
+                continue;
+            }
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+
+            let file_name = path.file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            let metadata = match fs::metadata(&path) {
+                Ok(m) => m,
+                Err(e) => {
+                    errors.push(format!("获取文件元数据失败 {}: {}", file_name, e));
+                    continue;
+                }
+            };
+
+            let file_size = metadata.len();
+            if file_size == 0 {
+                continue;
+            }
+
+            let hash = match compute_file_hash(&path) {
+                Ok(h) => h,
+                Err(e) => {
+                    errors.push(format!("计算文件哈希失败 {}: {}", file_name, e));
+                    continue;
+                }
+            };
+
+            let dup_file = DuplicateFile {
+                name: file_name,
+                path: path.to_string_lossy().to_string(),
+                folder: folder_name.to_string(),
+            };
+
+            size_map.insert(hash.clone(), file_size);
+            files_by_hash.entry(hash).or_default().push(dup_file);
+        }
+    }
+
+    let mut groups: Vec<DuplicateFileGroup> = files_by_hash
+        .into_iter()
+        .filter(|(_, files)| files.len() > 1)
+        .map(|(hash, mut files)| {
+            files.sort_by(|a, b| a.name.cmp(&b.name));
+            let size = size_map.get(&hash).copied().unwrap_or(0);
+            DuplicateFileGroup { hash, size, files }
+        })
+        .collect();
+
+    groups.sort_by(|a, b| b.size.cmp(&a.size));
+
+    println!("[清理重复文件] 发现 {} 组重复文件", groups.len());
+    for (i, group) in groups.iter().enumerate() {
+        println!("  组 {}: {} 字节, {} 个文件", i + 1, group.size, group.files.len());
+        for f in &group.files {
+            println!("    - {} ({})", f.name, f.folder);
+        }
+    }
+
+    Ok(groups)
+}
+
+/// 清理重复文件：保留每组按名称排序的第一个，其余移到回收站
+pub fn clean_duplicate_files() -> Result<(usize, usize, Vec<String>), String> {
+    let groups = find_duplicate_files()?;
+
+    let mut total_groups = 0;
+    let mut moved_count = 0;
+    let mut errors = Vec::new();
+
+    for group in &groups {
+        if group.files.len() <= 1 {
+            continue;
+        }
+
+        total_groups += 1;
+
+        for (i, file) in group.files.iter().enumerate() {
+            if i == 0 {
+                continue;
+            }
+
+            let path = Path::new(&file.path);
+            match move_to_recycle_bin(path) {
+                Ok(()) => {
+                    moved_count += 1;
+                    println!("[清理重复文件] 已移入回收站: {} ({})", file.name, file.folder);
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", file.name, e));
+                }
+            }
+        }
+    }
+
+    println!("[清理重复文件] 完成: {} 组重复, 移入回收站 {} 个文件, 错误 {} 个",
+        total_groups, moved_count, errors.len());
+
+    Ok((total_groups, moved_count, errors))
+}
+
+/// Tauri 命令：查找重复文件
+#[tauri::command]
+pub fn find_duplicate_files_cmd() -> Result<Vec<DuplicateFileGroup>, String> {
+    find_duplicate_files()
+}
+
+/// Tauri 命令：清理重复文件
+#[tauri::command]
+pub fn clean_duplicate_files_cmd() -> Result<(usize, usize, Vec<String>), String> {
+    clean_duplicate_files()
+}

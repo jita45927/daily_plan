@@ -46,7 +46,7 @@ const handleClose = () => {
           <h3 v-else class="text-lg font-semibold text-gray-800 mb-2">
             {{ taskStore.confirmDialog.title }}
           </h3>
-          <p class="text-sm text-gray-600 mb-4">
+          <p class="text-sm text-gray-600 mb-4 whitespace-pre-wrap">
             {{ taskStore.confirmDialog.message }}
           </p>
           <div class="flex justify-end gap-3" v-if="isAlert">

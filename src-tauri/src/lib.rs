@@ -14,6 +14,7 @@ use desktop_sort::{
     get_desktop_path, organize_desktop, ConflictStrategy, DesktopAnalyzeManager,
     analyze_desktop_cmd, show_analyze_window, get_desktop_analysis, close_desktop_analyze,
     setup_desktop_analyze_window, check_conflicts_before_organize, ConflictFile,
+    find_duplicate_files_cmd, clean_duplicate_files_cmd,
 };
 use window::{
     get_window_config, save_window_config, set_always_on_top,
@@ -375,6 +376,8 @@ pub fn run() {
             trash_context_menu_action,
             collapse_to_snap_line,
             expand_from_snap_line,
+            find_duplicate_files_cmd,
+            clean_duplicate_files_cmd,
         ])
         .setup(|app| {
             let manager = app.state::<Arc<WindowManager>>();

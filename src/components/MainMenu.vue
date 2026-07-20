@@ -44,6 +44,43 @@ const handleOrganizeDesktop = async () => {
 
 const handleCleanDuplicateFiles = () => {
   taskStore.closeMainMenu()
+  
+  taskStore.showConfirm(
+    '清理重复文件',
+    '确定要清理桌面上的重复文件吗？\n\n' +
+    '将扫描以下文件夹中的文件：\n' +
+    '• 程序快捷方式\n' +
+    '• 其他快捷方式\n' +
+    '• 桌面整理文件\n' +
+    '• 桌面图片文件\n\n' +
+    '对于内容完全相同但名称不同的文件：\n' +
+    '• 保留按名称排序的第一个文件\n' +
+    '• 其余文件将被移到回收站\n\n' +
+    '注意：只扫描文件，不扫描文件夹。',
+    async () => {
+      taskStore.isCleaningDuplicates = true
+      try {
+        const result = await invoke<[number, number, string[]]>('clean_duplicate_files_cmd')
+        const [groups, moved, errors] = result
+        let msg = `清理完成！\n\n发现 ${groups} 组重复文件\n已移入回收站 ${moved} 个文件`
+        if (errors.length > 0) {
+          msg += `\n\n错误 ${errors.length} 个：\n${errors.slice(0, 5).join('\n')}`
+        }
+        if (groups === 0) {
+          msg = '未发现重复文件。\n\n请确认已使用"整理桌面"功能将文件分类到四个文件夹中。'
+        }
+        taskStore.showConfirm('提示', msg, () => {})
+      } catch (error: any) {
+        console.error('[清理重复文件] 失败:', error)
+        taskStore.showErrorAlert(
+          '清理失败',
+          '清理重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
+        )
+      } finally {
+        taskStore.isCleaningDuplicates = false
+      }
+    }
+  )
 }
 
 const handleContextMenu = (e: MouseEvent) => {

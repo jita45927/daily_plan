@@ -276,13 +276,23 @@ onUnmounted(() => {
         </div>
       </Transition>
     </Teleport>
+
+    <!-- 清理重复文件 loading 遮罩 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="taskStore.isCleaningDuplicates" class="fixed inset-0 bg-orange-400/90 flex flex-col items-center justify-center z-50">
+          <div class="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mb-4"></div>
+          <p class="text-white text-base font-medium">正在清理重复文件，请稍后...</p>
+        </div>
+      </Transition>
+    </Teleport>
     
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="taskStore.errorAlert.show" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div class="bg-white rounded-lg p-6 shadow-xl max-w-sm">
             <h3 class="text-lg font-semibold text-gray-800 mb-2">{{ taskStore.errorAlert.title }}</h3>
-            <p class="text-gray-600 mb-4">{{ taskStore.errorAlert.message }}</p>
+            <p class="text-gray-600 mb-4 whitespace-pre-wrap">{{ taskStore.errorAlert.message }}</p>
             <div class="flex justify-end">
               <button
                 @click="taskStore.hideErrorAlert"
