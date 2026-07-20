@@ -85,6 +85,12 @@ export const useTaskStore = defineStore('tasks', () => {
     taskId: 0
   })
 
+  const mainMenu = ref({
+    show: false,
+    x: 0,
+    y: 0
+  })
+
   const timerStates = ref<Map<number, TimerState>>(new Map())
   const expiredTask = ref<ExpiredTask | null>(null)
   const deletedTasks = ref<DeletedTask[]>([])
@@ -340,6 +346,14 @@ export const useTaskStore = defineStore('tasks', () => {
 
   const closeContextMenu = () => {
     contextMenu.value = { show: false, x: 0, y: 0, taskId: 0 }
+  }
+
+  const openMainMenu = (x: number, y: number) => {
+    mainMenu.value = { show: true, x, y }
+  }
+
+  const closeMainMenu = () => {
+    mainMenu.value = { show: false, x: 0, y: 0 }
   }
 
   const updateTaskText = async (id: number, text: string) => {
@@ -736,6 +750,7 @@ export const useTaskStore = defineStore('tasks', () => {
     errorAlert,
     activePopups,
     contextMenu,
+    mainMenu,
     timerStates,
     expiredTask,
     deletedTasks,
@@ -760,6 +775,8 @@ export const useTaskStore = defineStore('tasks', () => {
     reorderTasks,
     openContextMenu,
     closeContextMenu,
+    openMainMenu,
+    closeMainMenu,
     updateTaskText,
     updateTaskColor,
     updateTaskBold,

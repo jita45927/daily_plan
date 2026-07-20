@@ -6,7 +6,8 @@ mod context_menu;
 mod snap_line;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use base64::Engine;
+
 use tauri::Manager;
 use db::{delete_all_tasks, delete_completed_tasks, delete_task, get_all_tasks, get_db_window_config, get_deleted_tasks, insert_task, move_task_to_trash, move_completed_to_trash, move_all_to_trash, permanently_delete_task, clear_trash_by_period, reinitialize_db, reorder_tasks, restore_task, save_db_window_config, update_task};
 use desktop_sort::{get_desktop_path, organize_desktop, ConflictStrategy};
@@ -150,6 +151,7 @@ fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     default_config.height = 600.0;
     manager.save_config(default_config);
     manager.apply_config_to_window(&window);
+    manager.reset_snap_state(&window);
 
     if let Some(menu_win) = window.app_handle().get_webview_window("context_menu") {
         let _ = menu_win.hide();
@@ -176,6 +178,61 @@ fn get_desktop_path_cmd() -> Result<String, String> {
 #[tauri::command]
 fn organize_desktop_cmd(strategy: ConflictStrategy) -> Result<(usize, usize, Vec<String>), String> {
     organize_desktop(strategy)
+}
+
+#[tauri::command]
+fn run_organize_desktop() -> Result<bool, String> {
+    let desktop_path = get_desktop_path()?;
+    
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let parent_cwd = cwd.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+    
+    let possible_paths = [
+        cwd.join("text_Clean_up the_desktop").join("organize_desktop.py"),
+        parent_cwd.join("text_Clean_up the_desktop").join("organize_desktop.py"),
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("organize_desktop.py"))).unwrap_or_default(),
+        std::env::current_exe().ok().and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("organize_desktop.py"))).unwrap_or_default(),
+        std::env::current_exe().ok().and_then(|p| p.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).map(|p| p.join("organize_desktop.py"))).unwrap_or_default(),
+    ];
+    
+    let mut script_path = None;
+    for path in &possible_paths {
+        if path.exists() {
+            script_path = Some(path.clone());
+            break;
+        }
+    }
+    
+    let script_path = match script_path {
+        Some(p) => p,
+        None => {
+            let paths_str: Vec<String> = possible_paths.iter().map(|p| p.display().to_string()).collect();
+            return Err(format!("整理脚本不存在！\n搜索路径:\n{}", paths_str.join("\n")));
+        }
+    };
+    
+    println!("整理脚本路径: {}", script_path.display());
+    println!("桌面路径: {}", desktop_path);
+    
+    let result = std::process::Command::new("python")
+        .arg(&script_path)
+        .arg(&desktop_path)
+        .spawn();
+    
+    match result {
+        Ok(_) => {
+            println!("整理脚本启动成功");
+            Ok(true)
+        }
+        Err(e) => {
+            println!("启动整理脚本失败: {}", e);
+            let python_path = match std::env::var("PYTHONPATH") {
+                Ok(p) => p,
+                Err(_) => "未设置".to_string()
+            };
+            Err(format!("启动整理脚本失败: {}\n可能需要安装Python并配置环境变量\nPYTHONPATH: {}", e, python_path))
+        }
+    }
 }
 
 #[tauri::command]
@@ -287,6 +344,7 @@ pub fn run() {
             save_db_window_config_cmd,
             get_desktop_path_cmd,
             organize_desktop_cmd,
+            run_organize_desktop,
             start_countdown_cmd,
             start_scheduled_timer_cmd,
             stop_timer_cmd,
@@ -337,22 +395,66 @@ pub fn run() {
             // 初始化时自动贴边对齐
             manager.init_snap(&window);
 
-            // 主窗口先显示（带动 WebView2 运行时初始化 + 加载主程序），然后立即创建欢迎窗口盖在上面
-            // 两者并行加载，欢迎窗口只显示图片（更轻量），主程序在后台初始化
-            // 欢迎窗口 always_on_top 保证在主窗口上层
+            // 主窗口先显示
             window.show().ok();
 
             let app_handle = app.handle().clone();
-            let _main_window = window.clone();
+            
             std::thread::spawn(move || {
-                // 用 AtomicBool 标记页面加载完成，确保倒计时从页面就绪后开始
-                let page_loaded = Arc::new(AtomicBool::new(false));
-                let page_loaded_for_cb = page_loaded.clone();
-
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+                
+                let cwd = std::env::current_dir().unwrap_or_default();
+                
+                let mut image_path = cwd.join("public").join("welcome.jpg");
+                if !image_path.exists() {
+                    image_path = cwd.parent().unwrap_or(&cwd).join("public").join("welcome.jpg");
+                }
+                if !image_path.exists() {
+                    image_path = cwd.join("dist").join("welcome.jpg");
+                }
+                if !image_path.exists() {
+                    image_path = cwd.parent().unwrap_or(&cwd).join("dist").join("welcome.jpg");
+                }
+                
+                let base64_image = match std::fs::read(&image_path) {
+                    Ok(data) => base64::engine::general_purpose::STANDARD.encode(&data),
+                    Err(_e) => {
+                        let _ = setup_context_menu_window(&app_handle);
+                        let _ = setup_trash_context_menu_window(&app_handle);
+                        let _ = setup_snap_line_window(&app_handle);
+                        return;
+                    }
+                };
+                
+                let html_content = format!(
+                    r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>欢迎</title>
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; background: transparent; }}
+img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
+</style>
+</head>
+<body>
+<img src="data:image/jpeg;base64,{}" alt="Welcome" />
+<script>setTimeout(function() {{ window.close(); }}, 4000);</script>
+</body>
+</html>"#,
+                    base64_image
+                );
+                
+                let temp_path = dirs::cache_dir().unwrap_or_default().join("daily_plan_welcome.html");
+                let _ = std::fs::write(&temp_path, &html_content);
+                
+                let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
                 let welcome_window = match tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
-                    tauri::WebviewUrl::App("/welcome.html".into())
+                    tauri::WebviewUrl::External(file_url.parse().unwrap())
                 )
                 .title("欢迎")
                 .inner_size(800.0, 600.0)
@@ -362,15 +464,9 @@ pub fn run() {
                 .transparent(true)
                 .background_color(tauri::window::Color(0, 0, 0, 0))
                 .visible(true)
-                .on_page_load(move |_webview, payload| {
-                    if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
-                        page_loaded_for_cb.store(true, Ordering::SeqCst);
-                    }
-                })
                 .build() {
                     Ok(w) => w,
                     Err(_e) => {
-                        std::thread::sleep(std::time::Duration::from_millis(800));
                         let _ = setup_context_menu_window(&app_handle);
                         let _ = setup_trash_context_menu_window(&app_handle);
                         let _ = setup_snap_line_window(&app_handle);
@@ -380,24 +476,14 @@ pub fn run() {
 
                 let welcome_clone = welcome_window.clone();
                 let app_handle2 = app_handle.clone();
-                let page_loaded_for_thread = page_loaded.clone();
-                std::thread::spawn(move || {
-                    let start = std::time::Instant::now();
-                    while !page_loaded_for_thread.load(Ordering::SeqCst) {
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                        if start.elapsed() > std::time::Duration::from_secs(6) {
-                            break;
-                        }
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(4000));
-
-                    let _ = welcome_clone.close();
-
-                    std::thread::sleep(std::time::Duration::from_millis(800));
-                    let _ = setup_context_menu_window(&app_handle2);
-                    let _ = setup_trash_context_menu_window(&app_handle2);
-                    let _ = setup_snap_line_window(&app_handle2);
-                });
+                
+                std::thread::sleep(std::time::Duration::from_millis(4000));
+                let _ = welcome_clone.close();
+                
+                std::thread::sleep(std::time::Duration::from_millis(800));
+                let _ = setup_context_menu_window(&app_handle2);
+                let _ = setup_trash_context_menu_window(&app_handle2);
+                let _ = setup_snap_line_window(&app_handle2);
             });
 
             Ok(())

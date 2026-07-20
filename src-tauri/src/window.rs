@@ -6,6 +6,7 @@ use tauri::{
     Manager, PhysicalPosition, PhysicalSize, Runtime, Window, Emitter,
 };
 use tokio::time::sleep;
+use crate::context_menu::{close_context_menu, close_trash_context_menu};
 use crate::db;
 use crate::snap_line::set_window_exact_region;
 
@@ -61,10 +62,12 @@ pub struct WindowManager {
     drag_debounce: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// 当前贴边线所在边（None 表示未贴边）
     snap_line_edge: Mutex<Option<LineEdge>>,
-    /// 窗口是否已收起（显示贴边线，主窗口隐藏）
+    /// 窗口是否已收起（显示贴边线，主窗口移到屏幕外）
     is_collapsed: Mutex<bool>,
     /// 鼠标是否曾经进入过窗口区域（避免初始化时鼠标不在窗口上就立即收起）
     mouse_was_in_window: Mutex<bool>,
+    /// 收起前的窗口外框位置（用于展开时恢复）
+    collapsed_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
 }
 
 impl WindowManager {
@@ -78,6 +81,7 @@ impl WindowManager {
             snap_line_edge: Mutex::new(None),
             is_collapsed: Mutex::new(false),
             mouse_was_in_window: Mutex::new(false),
+            collapsed_position: Mutex::new(None),
         }
     }
 
@@ -137,10 +141,12 @@ impl WindowManager {
                         *manager.drag_debounce.lock().unwrap() = Some(handle);
                     }
                 }
-                tauri::WindowEvent::CloseRequested { api, .. } => {
+                tauri::WindowEvent::CloseRequested { .. } => {
                     manager.save_to_db();
-                    api.prevent_close();
-                    weak_window.close().ok();
+                }
+                tauri::WindowEvent::Destroyed => {
+                    let app = weak_window.app_handle();
+                    app.exit(0);
                 }
                 tauri::WindowEvent::Focused(focused) => {
                     if *focused {
@@ -227,6 +233,10 @@ impl WindowManager {
         if *self.is_resizing.lock().unwrap() {
             return;
         }
+        // 收起状态下不更新位置（避免屏幕外位置被保存）
+        if *self.is_collapsed.lock().unwrap() {
+            return;
+        }
         let scale_factor = window.scale_factor().unwrap_or(1.0);
         let mut config = self.config.lock().unwrap();
         if config.is_locked {
@@ -255,10 +265,16 @@ impl WindowManager {
     }
 
     pub fn start_dragging<R: Runtime>(&self, window: &Window<R>) {
-        // 如果窗口被标记为收起，只清除状态和隐藏黄线
-        // 不调用 main_window.show()，因为它会干扰原生 window.start_dragging()
+        // 如果窗口被标记为收起，将窗口移回原来的位置并隐藏黄线
         if *self.is_collapsed.lock().unwrap() {
             *self.is_collapsed.lock().unwrap() = false;
+
+            // 将窗口移回原来的位置
+            let pos = *self.collapsed_position.lock().unwrap();
+            if let Some(p) = pos {
+                let _ = window.set_position(p);
+            }
+
             let app = window.app_handle();
             if let Some(snap_win) = app.get_webview_window("snap_line") {
                 let _ = snap_win.hide();
@@ -286,6 +302,22 @@ impl WindowManager {
     pub fn init_snap<R: Runtime>(&self, window: &Window<R>) {
         self.perform_snap(window);
         self.save_to_db();
+    }
+
+    pub fn reset_snap_state<R: Runtime>(&self, window: &Window<R>) {
+        *self.snap_line_edge.lock().unwrap() = None;
+        *self.is_collapsed.lock().unwrap() = false;
+
+        // 如果窗口在屏幕外，移回原来的位置
+        let pos = *self.collapsed_position.lock().unwrap();
+        if let Some(p) = pos {
+            let _ = window.set_position(p);
+            *self.collapsed_position.lock().unwrap() = None;
+        }
+
+        if let Some(snap_win) = window.app_handle().get_webview_window("snap_line") {
+            let _ = snap_win.hide();
+        }
     }
 
     fn perform_snap<R: Runtime>(&self, window: &Window<R>) {
@@ -475,7 +507,7 @@ impl WindowManager {
         edges
     }
 
-    /// 收起窗口：隐藏主窗口，在贴边位置显示黄色贴边线
+    /// 收起窗口：将主窗口移到屏幕外（保留任务栏图标，无动画），在贴边位置显示黄色贴边线
     pub fn collapse_window<R: Runtime>(&self, main_window: &Window<R>) {
         // 拖拽/调整大小过程中不收起
         if *self.is_dragging.lock().unwrap() || *self.is_resizing.lock().unwrap() {
@@ -505,16 +537,26 @@ impl WindowManager {
         let edge = line_edge.unwrap();
         self.position_snap_line(&snap_win, main_window, &edge);
 
-        // 先隐藏主窗口，确认成功后再显示贴边线，避免两者同时可见
-        if main_window.hide().is_err() {
-            return;
+        // 关闭所有菜单
+        close_context_menu(main_window.clone());
+        close_trash_context_menu(main_window.clone());
+
+        // 通知前端关闭主菜单（主菜单是前端Teleport组件）
+        let _ = main_window.emit("window_collapsed", serde_json::json!({}));
+
+        // 保存收起前的窗口外框位置
+        if let Ok(pos) = main_window.outer_position() {
+            *self.collapsed_position.lock().unwrap() = Some(pos);
         }
+
+        // 先显示贴边线，再将主窗口移到屏幕外（保留任务栏图标，无最小化动画）
         let _ = snap_win.show();
+        let _ = main_window.set_position(tauri::PhysicalPosition::new(-3000, -3000));
 
         *self.is_collapsed.lock().unwrap() = true;
     }
 
-    /// 展开窗口：隐藏贴边线，显示主窗口
+    /// 展开窗口：隐藏贴边线，将主窗口移回原来的位置（无动画）
     pub fn expand_window<R: Runtime>(&self, app: &tauri::AppHandle<R>) {
         let is_collapsed = *self.is_collapsed.lock().unwrap();
         if !is_collapsed {
@@ -530,9 +572,18 @@ impl WindowManager {
             None => return,
         };
 
-        // 先隐藏贴边线，再显示主窗口，避免两者同时可见
+        // 先隐藏贴边线，再将主窗口移回原来的位置（无动画）
         let _ = snap_win.hide();
-        let _ = main_window.show();
+
+        // 恢复到收起前的位置，如果没有保存则使用配置中的位置
+        let pos = *self.collapsed_position.lock().unwrap();
+        if let Some(p) = pos {
+            let _ = main_window.set_position(p);
+        } else {
+            // 备用：从配置中读取位置
+            let config = self.config.lock().unwrap();
+            let _ = main_window.set_position(tauri::LogicalPosition::new(config.x, config.y));
+        }
 
         *self.is_collapsed.lock().unwrap() = false;
     }
@@ -609,6 +660,11 @@ impl WindowManager {
 
     fn handle_window_focused<R: Runtime>(&self, window: &Window<R>) {
         let _ = window.emit("app_focused", serde_json::json!({}));
+
+        // 如果窗口处于收起状态，点击任务栏图标时自动展开
+        if *self.is_collapsed.lock().unwrap() {
+            self.expand_window(&window.app_handle());
+        }
     }
 
     fn handle_monitor_change<R: Runtime>(&self, _window: &Window<R>) {
@@ -641,15 +697,21 @@ impl WindowManager {
 
     pub fn save_to_db(&self) {
         let config = self.config.lock().unwrap();
-        let _ = db::save_db_window_config(config.x, config.y, config.height, config.is_locked);
+        // 只保存有效位置（避免保存屏幕外位置）
+        if config.x >= -100.0 && config.y >= -100.0 {
+            let _ = db::save_db_window_config(config.x, config.y, config.height, config.is_locked);
+        }
     }
 
     pub fn load_from_db(&self) {
         match db::get_db_window_config() {
             Ok(db_config) => {
                 let mut config = self.config.lock().unwrap();
-                config.x = db_config.x;
-                config.y = db_config.y;
+                // 验证位置是否有效（避免使用屏幕外的位置）
+                if db_config.x >= -100.0 && db_config.y >= -100.0 {
+                    config.x = db_config.x;
+                    config.y = db_config.y;
+                }
                 config.height = 600.0;
                 config.is_locked = db_config.locked;
             }

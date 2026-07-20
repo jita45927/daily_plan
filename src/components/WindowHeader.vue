@@ -2,16 +2,24 @@
 import { useTaskStore } from '../stores/taskStore'
 
 const taskStore = useTaskStore()
+
+const handleMenuClick = (e: MouseEvent) => {
+  e.stopPropagation()
+  const target = e.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  taskStore.closeContextMenu()
+  taskStore.openMainMenu(rect.left, rect.bottom)
+}
 </script>
 
 <template>
   <div class="flex items-center justify-between px-4 py-3">
     <button
-      disabled
-      class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center cursor-not-allowed opacity-50"
-      title="功能开发中"
+      @click="handleMenuClick"
+      class="w-10 h-10 rounded-full bg-yellow-400 hover:bg-yellow-500 flex items-center justify-center transition-colors shadow-md no-drag"
+      title="菜单"
     >
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-800" viewBox="0 0 20 20" fill="currentColor">
         <path d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
       </svg>
     </button>

@@ -8,6 +8,7 @@ import TaskList from './components/TaskList.vue'
 import ConfirmDialog from './components/Popups/ConfirmDialog.vue'
 import CountdownAlert from './components/Popups/CountdownAlert.vue'
 import TrashWindow from './components/TrashWindow.vue'
+import MainMenu from './components/MainMenu.vue'
 
 const taskStore = useTaskStore()
 
@@ -23,6 +24,11 @@ const handleMouseDown = (e: MouseEvent) => {
   const target = e.target as HTMLElement
   const noDragEl = target.closest('button, input, [contenteditable], .no-drag')
   if (noDragEl) {
+    return
+  }
+
+  if (taskStore.mainMenu.show) {
+    taskStore.closeMainMenu()
     return
   }
   
@@ -222,6 +228,9 @@ onMounted(async () => {
   await listen('app_focused', handleAppFocused)
   await listen('context_menu_command', handleContextMenuCommand)
   await listen('trash_context_menu_command', handleTrashContextMenuCommand)
+  await listen('window_collapsed', () => {
+    taskStore.closeMainMenu()
+  })
   
   document.addEventListener('mouseup', handleMouseUp)
 })
@@ -256,6 +265,7 @@ onUnmounted(() => {
     <ConfirmDialog />
     <CountdownAlert />
     <TrashWindow />
+    <MainMenu />
     
     <Teleport to="body">
       <Transition name="fade">
