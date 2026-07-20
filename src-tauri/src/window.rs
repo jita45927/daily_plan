@@ -514,6 +514,11 @@ impl WindowManager {
             return;
         }
 
+        // 固定窗口模式下不收起（保留贴边对齐，但禁用收起）
+        if self.config.lock().unwrap().is_locked {
+            return;
+        }
+
         // 已收起则跳过
         if *self.is_collapsed.lock().unwrap() {
             return;

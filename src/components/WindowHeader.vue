@@ -34,7 +34,7 @@ const handleMenuClick = (e: MouseEvent) => {
         'w-10 h-10 rounded-full flex items-center justify-center transition-colors shadow-md',
         taskStore.isWindowLocked ? 'bg-yellow-500' : 'bg-yellow-400 hover:bg-yellow-500'
       ]"
-      :title="taskStore.isWindowLocked ? '解锁窗口' : '固定窗口'"
+      :title="taskStore.isWindowLocked ? '解锁（恢复收起）' : '固定窗口（禁用收起）'"
     >
       <svg v-if="!taskStore.isWindowLocked" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-800" viewBox="0 0 20 20" fill="currentColor">
         <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
