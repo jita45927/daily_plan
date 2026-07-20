@@ -1079,9 +1079,17 @@ pub fn find_duplicate_files() -> Result<Vec<DuplicateFileGroup>, String> {
         "桌面图片文件",
     ];
 
-    let mut files_by_hash: std::collections::HashMap<String, Vec<DuplicateFile>> = std::collections::HashMap::new();
-    let mut size_map: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+    #[derive(Clone)]
+    struct FileInfo {
+        name: String,
+        path: String,
+        folder: String,
+        size: u64,
+    }
+
+    let mut all_files: Vec<FileInfo> = Vec::new();
     let mut errors = Vec::new();
+    let mut total_files = 0usize;
 
     for folder_name in &folders {
         let folder_path = desktop_path.join(folder_name);
@@ -1121,21 +1129,57 @@ pub fn find_duplicate_files() -> Result<Vec<DuplicateFileGroup>, String> {
                 continue;
             }
 
-            let hash = match compute_file_hash(&path) {
+            total_files += 1;
+            all_files.push(FileInfo {
+                name: file_name,
+                path: path.to_string_lossy().to_string(),
+                folder: folder_name.to_string(),
+                size: file_size,
+            });
+        }
+    }
+
+    println!("[清理重复文件] 共扫描 {} 个文件，正在按大小初筛...", total_files);
+
+    let mut files_by_size: std::collections::HashMap<u64, Vec<FileInfo>> = std::collections::HashMap::new();
+    for file in all_files {
+        files_by_size.entry(file.size).or_default().push(file);
+    }
+
+    let candidate_count: usize = files_by_size
+        .values()
+        .filter(|v| v.len() > 1)
+        .map(|v| v.len())
+        .sum();
+
+    println!("[清理重复文件] 大小初筛后，需计算哈希的文件: {} 个（跳过 {} 个大小唯一的文件）",
+        candidate_count, total_files - candidate_count);
+
+    let mut files_by_hash: std::collections::HashMap<String, Vec<DuplicateFile>> = std::collections::HashMap::new();
+    let mut size_map: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+
+    for (size, files) in &files_by_size {
+        if files.len() <= 1 {
+            continue;
+        }
+
+        for file_info in files {
+            let path = Path::new(&file_info.path);
+            let hash = match compute_file_hash(path) {
                 Ok(h) => h,
                 Err(e) => {
-                    errors.push(format!("计算文件哈希失败 {}: {}", file_name, e));
+                    errors.push(format!("计算文件哈希失败 {}: {}", file_info.name, e));
                     continue;
                 }
             };
 
             let dup_file = DuplicateFile {
-                name: file_name,
-                path: path.to_string_lossy().to_string(),
-                folder: folder_name.to_string(),
+                name: file_info.name.clone(),
+                path: file_info.path.clone(),
+                folder: file_info.folder.clone(),
             };
 
-            size_map.insert(hash.clone(), file_size);
+            size_map.insert(hash.clone(), *size);
             files_by_hash.entry(hash).or_default().push(dup_file);
         }
     }
