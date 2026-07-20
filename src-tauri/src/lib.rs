@@ -10,7 +10,11 @@ use base64::Engine;
 
 use tauri::Manager;
 use db::{delete_all_tasks, delete_completed_tasks, delete_task, get_all_tasks, get_db_window_config, get_deleted_tasks, insert_task, move_task_to_trash, move_completed_to_trash, move_all_to_trash, permanently_delete_task, clear_trash_by_period, reinitialize_db, reorder_tasks, restore_task, save_db_window_config, update_task};
-use desktop_sort::{get_desktop_path, organize_desktop, ConflictStrategy};
+use desktop_sort::{
+    get_desktop_path, organize_desktop, ConflictStrategy, DesktopAnalyzeManager,
+    analyze_desktop_cmd, show_analyze_window, get_desktop_analysis, close_desktop_analyze,
+    setup_desktop_analyze_window,
+};
 use window::{
     get_window_config, save_window_config, set_always_on_top,
     start_dragging, stop_dragging, toggle_window_lock, collapse_to_snap_line, WindowManager,
@@ -176,7 +180,7 @@ fn get_desktop_path_cmd() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn organize_desktop_cmd(strategy: ConflictStrategy) -> Result<(usize, usize, Vec<String>), String> {
+fn organize_desktop_cmd(strategy: ConflictStrategy) -> Result<(usize, usize, usize, usize, Vec<String>), String> {
     organize_desktop(strategy)
 }
 
@@ -312,6 +316,7 @@ pub fn run() {
         .manage(Arc::new(TimerManager::new()))
         .manage(Arc::new(ContextMenuManager::new()))
         .manage(Arc::new(SnapLineManager::new()))
+        .manage(Arc::new(DesktopAnalyzeManager::new()))
         .invoke_handler(tauri::generate_handler![
             greet,
             exit_app,
@@ -345,6 +350,10 @@ pub fn run() {
             get_desktop_path_cmd,
             organize_desktop_cmd,
             run_organize_desktop,
+            analyze_desktop_cmd,
+            show_analyze_window,
+            get_desktop_analysis,
+            close_desktop_analyze,
             start_countdown_cmd,
             start_scheduled_timer_cmd,
             stop_timer_cmd,
@@ -422,6 +431,7 @@ pub fn run() {
                         let _ = setup_context_menu_window(&app_handle);
                         let _ = setup_trash_context_menu_window(&app_handle);
                         let _ = setup_snap_line_window(&app_handle);
+                        let _ = setup_desktop_analyze_window(&app_handle);
                         return;
                     }
                 };
@@ -470,20 +480,22 @@ img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
                         let _ = setup_context_menu_window(&app_handle);
                         let _ = setup_trash_context_menu_window(&app_handle);
                         let _ = setup_snap_line_window(&app_handle);
+                        let _ = setup_desktop_analyze_window(&app_handle);
                         return;
                     }
                 };
 
                 let welcome_clone = welcome_window.clone();
                 let app_handle2 = app_handle.clone();
-                
+
                 std::thread::sleep(std::time::Duration::from_millis(4000));
                 let _ = welcome_clone.close();
-                
+
                 std::thread::sleep(std::time::Duration::from_millis(800));
                 let _ = setup_context_menu_window(&app_handle2);
                 let _ = setup_trash_context_menu_window(&app_handle2);
                 let _ = setup_snap_line_window(&app_handle2);
+                let _ = setup_desktop_analyze_window(&app_handle2);
             });
 
             Ok(())

@@ -183,6 +183,13 @@ impl WindowManager {
                     continue;
                 }
 
+                // 如果桌面分析窗口正在显示，则不收起主窗口（避免焦点冲突）
+                if let Some(analyze_win) = window.app_handle().get_webview_window("desktop_analyze") {
+                    if analyze_win.is_visible().unwrap_or(false) {
+                        continue;
+                    }
+                }
+
                 // 获取全局鼠标位置
                 let mouse = match get_cursor_pos() {
                     Some(p) => p,

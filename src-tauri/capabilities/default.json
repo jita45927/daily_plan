@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the main window and context menu",
-  "windows": ["main", "context_menu", "snap_line"],
+  "windows": ["main", "context_menu", "snap_line", "desktop_analyze"],
   "permissions": [
     "core:default",
     "opener:default"

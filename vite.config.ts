@@ -17,6 +17,7 @@ export default defineConfig({
         trashContextMenu: resolve(__dirname, 'trash-context-menu.html'),
         snapLine: resolve(__dirname, 'snap-line.html'),
         welcome: resolve(__dirname, 'welcome.html'),
+        desktopAnalyze: resolve(__dirname, 'desktop-analyze.html'),
       }
     }
   }

@@ -267,6 +267,16 @@ onUnmounted(() => {
     <TrashWindow />
     <MainMenu />
     
+    <!-- 桌面分析中 loading 遮罩 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="taskStore.isAnalyzingDesktop" class="fixed inset-0 bg-yellow-400/90 flex flex-col items-center justify-center z-50">
+          <div class="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mb-4"></div>
+          <p class="text-white text-base font-medium">桌面分析中，请稍后...</p>
+        </div>
+      </Transition>
+    </Teleport>
+    
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="taskStore.errorAlert.show" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">

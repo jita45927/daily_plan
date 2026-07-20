@@ -91,6 +91,8 @@ export const useTaskStore = defineStore('tasks', () => {
     y: 0
   })
 
+  const isAnalyzingDesktop = ref(false)
+
   const timerStates = ref<Map<number, TimerState>>(new Map())
   const expiredTask = ref<ExpiredTask | null>(null)
   const deletedTasks = ref<DeletedTask[]>([])
@@ -751,6 +753,7 @@ export const useTaskStore = defineStore('tasks', () => {
     activePopups,
     contextMenu,
     mainMenu,
+    isAnalyzingDesktop,
     timerStates,
     expiredTask,
     deletedTasks,
