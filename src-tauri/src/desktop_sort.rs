@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::{Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
+use crate::window::WindowManager;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub enum ConflictStrategy {
     Overwrite,
     Rename,
@@ -490,6 +491,55 @@ fn generate_unique_path(target_folder: &Path, file_name: &str) -> PathBuf {
     }
 }
 
+/// 跨盘符安全的文件移动：先尝试 rename（同盘符快），失败则 copy+remove（跨盘符）
+fn move_file_safe(source: &Path, target: &Path) -> Result<(), String> {
+    match fs::rename(source, target) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            // rename 失败（通常是跨盘符），改用 copy + remove
+            fs::copy(source, target)
+                .map_err(|e| format!("复制文件失败(跨盘符): {}", e))?;
+            fs::remove_file(source)
+                .map_err(|e| format!("删除源文件失败(跨盘符): {}", e))?;
+            Ok(())
+        }
+    }
+}
+
+/// 跨盘符安全的文件夹移动：先尝试 rename（同盘符快），失败则递归 copy+remove（跨盘符）
+fn move_dir_safe(source: &Path, target: &Path) -> Result<(), String> {
+    match fs::rename(source, target) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            // rename 失败（通常是跨盘符），改用递归 copy + remove
+            copy_dir_recursive(source, target)
+                .map_err(|e| format!("复制文件夹失败(跨盘符): {}", e))?;
+            fs::remove_dir_all(source)
+                .map_err(|e| format!("删除源文件夹失败(跨盘符): {}", e))?;
+            Ok(())
+        }
+    }
+}
+
+/// 递归复制文件夹
+fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
+    fs::create_dir_all(target)
+        .map_err(|e| format!("创建目标文件夹失败: {}", e))?;
+    for entry in fs::read_dir(source).map_err(|e| format!("读取源文件夹失败: {}", e))? {
+        let entry = entry.map_err(|e| format!("读取条目失败: {}", e))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let dest = target.join(&file_name);
+        if path.is_dir() {
+            copy_dir_recursive(&path, &dest)?;
+        } else {
+            fs::copy(&path, &dest)
+                .map_err(|e| format!("复制文件失败: {}", e))?;
+        }
+    }
+    Ok(())
+}
+
 fn move_file(source: &Path, target: &Path, strategy: &ConflictStrategy) -> Result<(), String> {
     if target.exists() {
         match strategy {
@@ -498,15 +548,15 @@ fn move_file(source: &Path, target: &Path, strategy: &ConflictStrategy) -> Resul
             }
             ConflictStrategy::Rename => {
                 let unique_target = generate_unique_path(target.parent().unwrap_or(target), target.file_name().unwrap().to_str().unwrap());
-                return fs::rename(source, &unique_target).map_err(|e| format!("移动文件失败: {}", e));
+                return move_file_safe(source, &unique_target);
             }
             ConflictStrategy::Skip => {
                 return Ok(());
             }
         }
     }
-    
-    fs::rename(source, target).map_err(|e| format!("移动文件失败: {}", e))
+
+    move_file_safe(source, target)
 }
 
 fn move_dir(source: &Path, target: &Path, strategy: &ConflictStrategy) -> Result<(), String> {
@@ -517,15 +567,136 @@ fn move_dir(source: &Path, target: &Path, strategy: &ConflictStrategy) -> Result
             }
             ConflictStrategy::Rename => {
                 let unique_target = generate_unique_path(target.parent().unwrap_or(target), target.file_name().unwrap().to_str().unwrap());
-                return fs::rename(source, &unique_target).map_err(|e| format!("移动文件夹失败: {}", e));
+                return move_dir_safe(source, &unique_target);
             }
             ConflictStrategy::Skip => {
                 return Ok(());
             }
         }
     }
-    
-    fs::rename(source, target).map_err(|e| format!("移动文件夹失败: {}", e))
+
+    move_dir_safe(source, target)
+}
+
+/// 冲突文件信息
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFile {
+    /// 源文件名
+    pub file_name: String,
+    /// 源文件路径
+    pub source_path: String,
+    /// 目标文件夹名
+    pub target_folder: String,
+    /// 目标文件路径
+    pub target_path: String,
+}
+
+/// 整理前检查冲突：返回所有会产生同名冲突的文件列表
+pub fn check_conflicts_before_organize() -> Result<Vec<ConflictFile>, String> {
+    let desktop_path_str = get_desktop_path()?;
+    let desktop_path = Path::new(&desktop_path_str);
+
+    if !desktop_path.exists() {
+        return Err("桌面路径不存在".to_string());
+    }
+
+    let (program_shortcuts_folder, other_shortcuts_folder, images_folder, other_files_folder) =
+        create_target_folders(desktop_path)?;
+
+    let skip_folders: &[&str] = &[
+        "程序快捷方式",
+        "其他快捷方式",
+        "桌面图片文件",
+        "桌面整理文件",
+    ];
+
+    let image_exts: &[&str] = &[
+        "jpg", "jpeg", "png", "gif", "bmp", "webp", "tiff", "tif", "svg", "ico", "heic", "heif",
+    ];
+
+    let program_exts: &[&str] = &["exe", "bat", "cmd"];
+
+    let mut conflicts = Vec::new();
+
+    // 收集需要检查的目录：用户桌面 + 公共桌面
+    let mut desktop_dirs = vec![desktop_path.to_path_buf()];
+    if let Some(pub_path) = get_public_desktop_path() {
+        let pub_path = PathBuf::from(&pub_path);
+        if pub_path.exists() {
+            desktop_dirs.push(pub_path);
+        }
+    }
+
+    for dir in desktop_dirs {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+            if skip_folders.contains(&file_name.as_str()) {
+                continue;
+            }
+            if file_name.eq_ignore_ascii_case("desktop.ini") {
+                continue;
+            }
+
+            // 确定目标文件夹
+            let target_folder = if path.is_file() {
+                let ext = path.extension().map(|e| {
+                    e.to_ascii_lowercase().to_string_lossy().to_string().to_lowercase()
+                });
+                if let Some(ref ext_str) = ext {
+                    if ext_str == "lnk" {
+                        let target = read_lnk_target(&path.to_string_lossy());
+                        let is_program = target
+                            .as_ref()
+                            .map(|t| {
+                                let lower = t.to_lowercase();
+                                program_exts.iter().any(|e| lower.ends_with(&format!(".{}", e)))
+                            })
+                            .unwrap_or(false);
+                        if is_program {
+                            &program_shortcuts_folder
+                        } else {
+                            &other_shortcuts_folder
+                        }
+                    } else if ext_str == "url" {
+                        &other_shortcuts_folder
+                    } else if image_exts.contains(&ext_str.as_str()) {
+                        &images_folder
+                    } else {
+                        &other_files_folder
+                    }
+                } else {
+                    &other_files_folder
+                }
+            } else {
+                &other_files_folder
+            };
+
+            let target_path = target_folder.join(&file_name);
+            // 检查是否冲突（目标文件已存在，且不是同一个文件）
+            if target_path.exists() {
+                let target_folder_name = target_folder.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
+                conflicts.push(ConflictFile {
+                    file_name: file_name.clone(),
+                    source_path: path.to_string_lossy().to_string(),
+                    target_folder: target_folder_name,
+                    target_path: target_path.to_string_lossy().to_string(),
+                });
+            }
+        }
+    }
+
+    Ok(conflicts)
 }
 
 pub fn organize_desktop(strategy: ConflictStrategy) -> Result<(usize, usize, usize, usize, Vec<String>), String> {
@@ -538,8 +709,6 @@ pub fn organize_desktop(strategy: ConflictStrategy) -> Result<(usize, usize, usi
 
     let (program_shortcuts_folder, other_shortcuts_folder, images_folder, other_files_folder) =
         create_target_folders(desktop_path)?;
-
-    let entries = fs::read_dir(desktop_path).map_err(|e| format!("读取桌面目录失败: {}", e))?;
 
     let mut program_shortcut_count = 0;
     let mut other_shortcut_count = 0;
@@ -563,100 +732,119 @@ pub fn organize_desktop(strategy: ConflictStrategy) -> Result<(usize, usize, usi
     // 程序扩展名列表（快捷方式指向这些即为程序快捷方式）
     let program_exts: &[&str] = &["exe", "bat", "cmd"];
 
-    for entry in entries {
-        match entry {
-            Ok(entry) => {
-                let path = entry.path();
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+    // 收集需要整理的目录：用户桌面 + 公共桌面
+    let mut desktop_dirs = vec![desktop_path.to_path_buf()];
+    if let Some(pub_path) = get_public_desktop_path() {
+        let pub_path = PathBuf::from(&pub_path);
+        if pub_path.exists() {
+            desktop_dirs.push(pub_path);
+        }
+    }
 
-                // 跳过目标文件夹本身
-                if skip_folders.contains(&file_name.as_str()) {
-                    continue;
-                }
-
-                // 跳过 desktop.ini 系统文件
-                if file_name.eq_ignore_ascii_case("desktop.ini") {
-                    continue;
-                }
-
-                if path.is_file() {
-                    let ext = path.extension().map(|e| {
-                        e.to_ascii_lowercase()
-                            .to_string_lossy()
-                            .to_string()
-                            .to_lowercase()
-                    });
-
-                    if let Some(ref ext_str) = ext {
-                        // .lnk 快捷方式：解析目标区分为程序快捷方式和其他快捷方式
-                        if ext_str == "lnk" {
-                            let target = read_lnk_target(&path.to_string_lossy());
-                            let is_program = target
-                                .as_ref()
-                                .map(|t| {
-                                    let lower = t.to_lowercase();
-                                    program_exts.iter().any(|e| lower.ends_with(&format!(".{}", e)))
-                                })
-                                .unwrap_or(false);
-
-                            let target_folder = if is_program {
-                                &program_shortcuts_folder
-                            } else {
-                                &other_shortcuts_folder
-                            };
-                            let target_path = target_folder.join(&file_name);
-                            if let Err(e) = move_file(&path, &target_path, &strategy) {
-                                errors.push(format!("{}: {}", file_name, e));
-                            } else if is_program {
-                                program_shortcut_count += 1;
-                            } else {
-                                other_shortcut_count += 1;
-                            }
-                            continue;
-                        }
-
-                        // .url 快捷方式：其他快捷方式
-                        if ext_str == "url" {
-                            let target_path = other_shortcuts_folder.join(&file_name);
-                            if let Err(e) = move_file(&path, &target_path, &strategy) {
-                                errors.push(format!("{}: {}", file_name, e));
-                            } else {
-                                other_shortcut_count += 1;
-                            }
-                            continue;
-                        }
-
-                        // 图片文件
-                        if image_exts.contains(&ext_str.as_str()) {
-                            let target_path = images_folder.join(&file_name);
-                            if let Err(e) = move_file(&path, &target_path, &strategy) {
-                                errors.push(format!("{}: {}", file_name, e));
-                            } else {
-                                image_count += 1;
-                            }
-                            continue;
-                        }
-                    }
-
-                    // 其他文件 → 桌面整理文件
-                    let target_path = other_files_folder.join(&file_name);
-                    if let Err(e) = move_file(&path, &target_path, &strategy) {
-                        errors.push(format!("{}: {}", file_name, e));
-                    } else {
-                        other_count += 1;
-                    }
-                } else if path.is_dir() {
-                    // 文件夹 → 桌面整理文件
-                    let target_path = other_files_folder.join(&file_name);
-                    if let Err(e) = move_dir(&path, &target_path, &strategy) {
-                        errors.push(format!("{}: {}", file_name, e));
-                    } else {
-                        other_count += 1;
-                    }
-                }
-            }
+    for dir in desktop_dirs {
+        let entries = match fs::read_dir(&dir) {
+            Ok(e) => e,
             Err(e) => {
-                errors.push(format!("读取目录项失败: {}", e));
+                errors.push(format!("读取目录失败 {:?}: {}", dir, e));
+                continue;
+            }
+        };
+
+        for entry in entries {
+            match entry {
+                Ok(entry) => {
+                    let path = entry.path();
+                    let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+
+                    // 跳过目标文件夹本身
+                    if skip_folders.contains(&file_name.as_str()) {
+                        continue;
+                    }
+
+                    // 跳过 desktop.ini 系统文件
+                    if file_name.eq_ignore_ascii_case("desktop.ini") {
+                        continue;
+                    }
+
+                    if path.is_file() {
+                        let ext = path.extension().map(|e| {
+                            e.to_ascii_lowercase()
+                                .to_string_lossy()
+                                .to_string()
+                                .to_lowercase()
+                        });
+
+                        if let Some(ref ext_str) = ext {
+                            // .lnk 快捷方式：解析目标区分为程序快捷方式和其他快捷方式
+                            if ext_str == "lnk" {
+                                let target = read_lnk_target(&path.to_string_lossy());
+                                let is_program = target
+                                    .as_ref()
+                                    .map(|t| {
+                                        let lower = t.to_lowercase();
+                                        program_exts.iter().any(|e| lower.ends_with(&format!(".{}", e)))
+                                    })
+                                    .unwrap_or(false);
+
+                                let target_folder = if is_program {
+                                    &program_shortcuts_folder
+                                } else {
+                                    &other_shortcuts_folder
+                                };
+                                let target_path = target_folder.join(&file_name);
+                                if let Err(e) = move_file(&path, &target_path, &strategy) {
+                                    errors.push(format!("{}: {}", file_name, e));
+                                } else if is_program {
+                                    program_shortcut_count += 1;
+                                } else {
+                                    other_shortcut_count += 1;
+                                }
+                                continue;
+                            }
+
+                            // .url 快捷方式：其他快捷方式
+                            if ext_str == "url" {
+                                let target_path = other_shortcuts_folder.join(&file_name);
+                                if let Err(e) = move_file(&path, &target_path, &strategy) {
+                                    errors.push(format!("{}: {}", file_name, e));
+                                } else {
+                                    other_shortcut_count += 1;
+                                }
+                                continue;
+                            }
+
+                            // 图片文件
+                            if image_exts.contains(&ext_str.as_str()) {
+                                let target_path = images_folder.join(&file_name);
+                                if let Err(e) = move_file(&path, &target_path, &strategy) {
+                                    errors.push(format!("{}: {}", file_name, e));
+                                } else {
+                                    image_count += 1;
+                                }
+                                continue;
+                            }
+                        }
+
+                        // 其他文件 → 桌面整理文件
+                        let target_path = other_files_folder.join(&file_name);
+                        if let Err(e) = move_file(&path, &target_path, &strategy) {
+                            errors.push(format!("{}: {}", file_name, e));
+                        } else {
+                            other_count += 1;
+                        }
+                    } else if path.is_dir() {
+                        // 文件夹 → 桌面整理文件
+                        let target_path = other_files_folder.join(&file_name);
+                        if let Err(e) = move_dir(&path, &target_path, &strategy) {
+                            errors.push(format!("{}: {}", file_name, e));
+                        } else {
+                            other_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    errors.push(format!("读取目录项失败: {}", e));
+                }
             }
         }
     }
@@ -675,12 +863,36 @@ pub fn organize_desktop(strategy: ConflictStrategy) -> Result<(usize, usize, usi
 const ANALYZE_WIN_WIDTH: f64 = 720.0;
 const ANALYZE_WIN_HEIGHT: f64 = 560.0;
 
-/// 预创建桌面分析窗口（保留函数签名，实际不做预创建，改为动态创建）
-/// 保留此函数是为了不修改 lib.rs 中的调用点
-pub fn setup_desktop_analyze_window<R: Runtime>(_app: &tauri::AppHandle<R>) -> Result<(), String> {
-    // 不再预创建窗口，改为每次调用 analyze_desktop_cmd 时动态创建
-    // 预创建会导致 Vue 组件在应用启动时就 mounted，等用户打开窗口时数据已经过期
-    // 动态创建确保组件挂载时分析结果已经准备好
+/// 预创建桌面分析窗口（参考右键菜单的预创建模式）
+pub fn setup_desktop_analyze_window<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    println!("[桌面分析] 预创建桌面分析窗口...");
+    let analyze_win = WebviewWindowBuilder::new(
+        app,
+        "desktop_analyze",
+        WebviewUrl::App("/desktop-analyze.html".into()),
+    )
+    .title("桌面文件分析")
+    .inner_size(ANALYZE_WIN_WIDTH, ANALYZE_WIN_HEIGHT)
+    .decorations(true)
+    .transparent(false)
+    .always_on_top(true)
+    .skip_taskbar(false)
+    .resizable(true)
+    .visible(false)
+    .position(-3000.0, -3000.0)
+    .build()
+    .map_err(|e| format!("创建桌面分析窗口失败: {:?}", e))?;
+
+    let win_clone = analyze_win.clone();
+    analyze_win.on_window_event(move |event| {
+        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+            api.prevent_close();
+            let _ = win_clone.hide();
+            let _ = win_clone.set_position(tauri::PhysicalPosition::new(-3000, -3000));
+        }
+    });
+
+    println!("[桌面分析] 桌面分析窗口预创建完成");
     Ok(())
 }
 
@@ -712,10 +924,9 @@ pub fn analyze_desktop_cmd<R: Runtime>(window: tauri::Window<R>) -> Result<bool,
 pub fn show_analyze_window<R: Runtime>(window: tauri::Window<R>) -> Result<bool, String> {
     let app = window.app_handle();
 
-    // 如果窗口已存在，先销毁（destroy 是同步的，避免 close 的异步问题）
-    if let Some(existing_win) = app.get_webview_window("desktop_analyze") {
-        let _ = existing_win.destroy();
-    }
+    // 获取预创建的分析窗口
+    let analyze_win = app.get_webview_window("desktop_analyze")
+        .ok_or_else(|| "分析窗口未初始化".to_string())?;
 
     // 计算窗口在主屏幕中央的位置
     let (x, y) = if let Ok(Some(monitor)) = window.primary_monitor() {
@@ -727,32 +938,20 @@ pub fn show_analyze_window<R: Runtime>(window: tauri::Window<R>) -> Result<bool,
         (100.0, 100.0)
     };
 
-    // 动态创建窗口（组件挂载时分析结果已经存储在 manager 中，直接拉取即可）
-    // 使用 app 而不是 &window，与其他窗口保持一致
-    let analyze_win = WebviewWindowBuilder::new(
-        app,
-        "desktop_analyze",
-        WebviewUrl::App("/desktop-analyze.html".into()),
-    )
-    .title("桌面文件分析")
-    .inner_size(ANALYZE_WIN_WIDTH, ANALYZE_WIN_HEIGHT)
-    .decorations(true)
-    .transparent(false)
-    .always_on_top(true)
-    .skip_taskbar(false)
-    .resizable(true)
-    .position(x, y)
-    .on_navigation(|url| {
-        println!("[桌面分析] 导航到: {}", url);
-        true
-    })
-    .build()
-    .map_err(|e| format!("创建桌面分析窗口失败: {:?}", e))?;
+    // 移动窗口到正确位置并显示
+    let _ = analyze_win.set_position(tauri::LogicalPosition::new(x, y));
+    let _ = analyze_win.show();
+    let _ = analyze_win.set_focus();
 
-    // 自动打开 DevTools 以便调试
-    let _ = analyze_win.open_devtools();
+    // 确保主窗口保持展开状态
+    let win_manager = app.state::<Arc<WindowManager>>();
+    win_manager.expand_window(&app);
 
-    println!("[桌面分析] 窗口已创建，DevTools 已打开");
+    // 发送事件通知前端刷新数据
+    let manager = app.state::<Arc<DesktopAnalyzeManager>>();
+    if let Some(analysis) = manager.get() {
+        let _ = analyze_win.emit("desktop-analyze-reload", analysis);
+    }
 
     Ok(true)
 }
@@ -761,19 +960,14 @@ pub fn show_analyze_window<R: Runtime>(window: tauri::Window<R>) -> Result<bool,
 #[tauri::command]
 pub fn get_desktop_analysis<R: Runtime>(window: tauri::Window<R>) -> Option<DesktopAnalysis> {
     let manager = window.app_handle().state::<Arc<DesktopAnalyzeManager>>();
-    let result = manager.get();
-    if let Some(ref r) = result {
-        println!("[桌面分析] get_desktop_analysis 返回数据: {} 项", r.items.len());
-    } else {
-        println!("[桌面分析] get_desktop_analysis 返回 None");
-    }
-    result
+    manager.get()
 }
 
-/// 关闭桌面分析窗口（完全销毁，避免下次创建时标签冲突）
+/// 关闭桌面分析窗口（隐藏并移到屏幕外，不销毁）
 #[tauri::command]
 pub fn close_desktop_analyze<R: Runtime>(window: tauri::Window<R>) {
     if let Some(win) = window.app_handle().get_webview_window("desktop_analyze") {
-        let _ = win.destroy();
+        let _ = win.hide();
+        let _ = win.set_position(tauri::PhysicalPosition::new(-3000, -3000));
     }
 }

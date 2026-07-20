@@ -29,6 +29,9 @@ const organizing = ref(false)
 const errorMsg = ref('')
 const activeCategory = ref<string | 'all'>('all')
 const unlisteners: Array<() => void> = []
+const showConflictDialog = ref(false)
+const conflictList = ref<Array<{fileName: string, sourcePath: string, targetFolder: string, targetPath: string}>>([])
+let conflictResolver: ((strategy: 'Overwrite' | 'Rename' | 'Skip' | 'Cancel') => void) | null = null
 
 const categoryMeta: Record<string, { label: string; color: string; bg: string }> = {
   virtual: { label: 'Windows 虚拟对象', color: '#8B5CF6', bg: '#F3E8FF' },
@@ -62,22 +65,17 @@ const loadAnalysis = async () => {
   loading.value = true
   errorMsg.value = ''
   try {
-    console.log('[桌面分析] 调用 get_desktop_analysis...')
     const result = await invoke<DesktopAnalysis | null>('get_desktop_analysis')
-    console.log('[桌面分析] get_desktop_analysis 返回:', result ? `有数据，共 ${result.items.length} 项` : 'null')
     if (result) {
       analysis.value = result
-      console.log('[桌面分析] 分析结果已设置')
     } else {
       errorMsg.value = '尚未生成分析结果，请点击"重新分析"按钮。'
-      console.log('[桌面分析] 无数据，显示错误信息')
     }
   } catch (e: any) {
     errorMsg.value = String(e?.message || e?.toString() || '未知错误')
     console.error('[桌面分析] loadAnalysis 失败:', e)
   } finally {
     loading.value = false
-    console.log('[桌面分析] loadAnalysis 完成，loading:', loading.value)
   }
 }
 
@@ -118,8 +116,29 @@ const startOrganize = async () => {
   organizing.value = true
   errorMsg.value = ''
   try {
+    // 第一步：检查冲突
+    const conflicts = await invoke<Array<{fileName: string, sourcePath: string, targetFolder: string, targetPath: string}>>('check_conflicts_cmd')
+
+    // 第二步：如果有冲突，询问用户选择处理策略
+    let strategy: 'Overwrite' | 'Rename' | 'Skip' = 'Rename'
+    if (conflicts.length > 0) {
+      conflictList.value = conflicts
+      const choice = await new Promise<'Overwrite' | 'Rename' | 'Skip' | 'Cancel'>((resolve) => {
+        conflictResolver = resolve
+        showConflictDialog.value = true
+      })
+      showConflictDialog.value = false
+      conflictResolver = null
+      if (choice === 'Cancel') {
+        organizing.value = false
+        return
+      }
+      strategy = choice
+    }
+
+    // 第三步：执行整理
     const result = await invoke<[number, number, number, number, string[]]>('organize_desktop_cmd', {
-      strategy: 'Rename',
+      strategy,
     })
     const [programShortcuts, otherShortcuts, images, others, errors] = result
     alert(
@@ -128,7 +147,7 @@ const startOrganize = async () => {
         `其他快捷方式: ${otherShortcuts} 个\n` +
         `图片文件: ${images} 个\n` +
         `其他文件/文件夹: ${others} 个\n` +
-        (errors.length > 0 ? `错误: ${errors.length} 个` : '')
+        (errors.length > 0 ? `\n错误: ${errors.length} 个\n${errors.slice(0, 5).join('\n')}` : '')
     )
     // 整理完成后重新分析并重建窗口
     await invoke('analyze_desktop_cmd')
@@ -148,6 +167,12 @@ const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
   } catch {}
+}
+
+const resolveConflict = (strategy: 'Overwrite' | 'Rename' | 'Skip' | 'Cancel') => {
+  if (conflictResolver) {
+    conflictResolver(strategy)
+  }
 }
 
 onMounted(async () => {
@@ -263,6 +288,39 @@ onUnmounted(() => {
 
     <div v-else-if="loading" class="empty-state">正在分析桌面文件...</div>
     <div v-else class="empty-state">点击"重新分析"按钮开始分析</div>
+
+    <!-- 冲突处理对话框 -->
+    <div v-if="showConflictDialog" class="conflict-dialog-overlay">
+      <div class="conflict-dialog">
+        <div class="conflict-dialog-title">发现 {{ conflictList.length }} 个同名文件冲突</div>
+        <div class="conflict-dialog-body">
+          <div class="conflict-list">
+            <div v-for="(item, idx) in conflictList.slice(0, 10)" :key="idx" class="conflict-item">
+              <span class="conflict-name">{{ item.fileName }}</span>
+              <span class="conflict-arrow">→</span>
+              <span class="conflict-target">{{ item.targetFolder }}</span>
+            </div>
+            <div v-if="conflictList.length > 10" class="conflict-more">
+              ...等共 {{ conflictList.length }} 个冲突文件
+            </div>
+          </div>
+        </div>
+        <div class="conflict-dialog-actions">
+          <button class="conflict-btn conflict-btn-danger" @click="resolveConflict('Overwrite')">
+            覆盖同名文件
+          </button>
+          <button class="conflict-btn conflict-btn-primary" @click="resolveConflict('Rename')">
+            自动改名
+          </button>
+          <button class="conflict-btn conflict-btn-default" @click="resolveConflict('Skip')">
+            不移动重名文件
+          </button>
+          <button class="conflict-btn conflict-btn-cancel" @click="resolveConflict('Cancel')">
+            取消整理
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -533,5 +591,146 @@ onUnmounted(() => {
   justify-content: center;
   color: #9ca3af;
   font-size: 14px;
+}
+
+.conflict-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.conflict-dialog {
+  background: #fff;
+  border-radius: 8px;
+  width: 420px;
+  max-width: 90%;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.conflict-dialog-title {
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.conflict-dialog-body {
+  padding: 12px 16px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.conflict-list {
+  font-size: 12px;
+}
+
+.conflict-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  color: #374151;
+}
+
+.conflict-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-arrow {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.conflict-target {
+  color: #6b7280;
+  flex-shrink: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conflict-more {
+  padding: 4px 0;
+  color: #6b7280;
+  font-size: 11px;
+}
+
+.conflict-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.conflict-btn {
+  padding: 8px 16px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.conflict-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.conflict-btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: #dc2626;
+}
+
+.conflict-btn-danger:hover {
+  background: #b91c1c;
+}
+
+.conflict-btn-primary {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.conflict-btn-primary:hover {
+  background: #1d4ed8;
+}
+
+.conflict-btn-default {
+  background: #fff;
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+.conflict-btn-default:hover {
+  background: #f9fafb;
+}
+
+.conflict-btn-cancel {
+  background: #6b7280;
+  color: #fff;
+  border-color: #6b7280;
+}
+
+.conflict-btn-cancel:hover {
+  background: #4b5563;
 }
 </style>

@@ -13,7 +13,7 @@ use db::{delete_all_tasks, delete_completed_tasks, delete_task, get_all_tasks, g
 use desktop_sort::{
     get_desktop_path, organize_desktop, ConflictStrategy, DesktopAnalyzeManager,
     analyze_desktop_cmd, show_analyze_window, get_desktop_analysis, close_desktop_analyze,
-    setup_desktop_analyze_window,
+    setup_desktop_analyze_window, check_conflicts_before_organize, ConflictFile,
 };
 use window::{
     get_window_config, save_window_config, set_always_on_top,
@@ -185,6 +185,11 @@ fn organize_desktop_cmd(strategy: ConflictStrategy) -> Result<(usize, usize, usi
 }
 
 #[tauri::command]
+fn check_conflicts_cmd() -> Result<Vec<ConflictFile>, String> {
+    check_conflicts_before_organize()
+}
+
+#[tauri::command]
 fn run_organize_desktop() -> Result<bool, String> {
     let desktop_path = get_desktop_path()?;
     
@@ -349,6 +354,7 @@ pub fn run() {
             save_db_window_config_cmd,
             get_desktop_path_cmd,
             organize_desktop_cmd,
+            check_conflicts_cmd,
             run_organize_desktop,
             analyze_desktop_cmd,
             show_analyze_window,

@@ -27,17 +27,17 @@ const handleOrganizeDesktop = async () => {
   try {
     await invoke('analyze_desktop_cmd')
   } catch (error: any) {
-    console.error('分析桌面失败:', error)
+    console.error('[整理桌面] 分析桌面失败:', error)
     alert('分析桌面失败:\n' + (error?.message || error?.toString() || '未知错误'))
     return
   } finally {
     taskStore.isAnalyzingDesktop = false
   }
-  // 第二步：分析完成后，创建并显示结果窗口
+  // 第二步：分析完成后，显示结果窗口
   try {
     await invoke('show_analyze_window')
   } catch (error: any) {
-    console.error('显示分析窗口失败:', error)
+    console.error('[整理桌面] 显示分析窗口失败:', error)
     alert('显示分析窗口失败:\n' + (error?.message || error?.toString() || '未知错误'))
   }
 }
