@@ -19,12 +19,12 @@ impl Default for SnapLineManager {
     }
 }
 
-/// 用 SetWindowRgn 精确裁剪窗口可见区域，完全消除透明边框/阴影
-/// 窗口内容区域外的所有像素都不可见、不可点击
-/// 注意：SetWindowRgn 坐标系是相对于窗口外框（含阴影）左上角的，
-/// 必须用 ClientToScreen 换算内容区位置后才能精确对齐
-pub fn set_window_exact_region<R: Runtime>(
+/// 用 SetWindowRgn 精确裁剪窗口可见区域，支持指定可见区域的偏移
+/// 用于扩大鼠标热区但保持视觉大小不变
+pub fn set_window_exact_region_with_offset<R: Runtime>(
     window: &tauri::WebviewWindow<R>,
+    offset_x: i32,
+    offset_y: i32,
     content_width: i32,
     content_height: i32,
 ) {
@@ -51,15 +51,15 @@ pub fn set_window_exact_region<R: Runtime>(
         }
 
         // 计算客户区相对于窗口外框左上角的偏移
-        let offset_x = client_origin.x - wnd_rect.left;
-        let offset_y = client_origin.y - wnd_rect.top;
+        let client_offset_x = client_origin.x - wnd_rect.left;
+        let client_offset_y = client_origin.y - wnd_rect.top;
 
-        // region 正好覆盖内容区，裁掉四周的透明阴影边框
+        // region 覆盖可见内容区，裁掉热区和透明阴影边框
         let hrgn = CreateRectRgn(
-            offset_x,
-            offset_y,
-            offset_x + content_width,
-            offset_y + content_height,
+            client_offset_x + offset_x,
+            client_offset_y + offset_y,
+            client_offset_x + offset_x + content_width,
+            client_offset_y + offset_y + content_height,
         );
 
         if hrgn.is_null() {

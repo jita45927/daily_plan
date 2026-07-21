@@ -8,7 +8,7 @@ use tauri::{
 use tokio::time::sleep;
 use crate::context_menu::{close_context_menu, close_trash_context_menu};
 use crate::db;
-use crate::snap_line::set_window_exact_region;
+use crate::snap_line::set_window_exact_region_with_offset;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowConfigData {
@@ -707,18 +707,30 @@ impl WindowManager {
         };
         let scale_factor = main_window.scale_factor().unwrap_or(1.0);
 
-        // 贴边线厚度：5 逻辑像素
+        // 贴边线厚度：5 逻辑像素（视觉大小）
         let thickness = (5.0 * scale_factor) as i32;
+        // 鼠标热区扩展：在贴边方向外扩展的像素数（不影响视觉）
+        let hotzone_extend = (5.0 * scale_factor) as i32;
 
-        // 计算内容区尺寸
-        let (content_w, content_h) = match edge {
-            LineEdge::Top => (main_inner_size.width as i32, thickness),
-            LineEdge::Left => (thickness, main_inner_size.height as i32),
-            LineEdge::Right => (thickness, main_inner_size.height as i32),
+        // 计算窗口总尺寸（包含热区）和可见内容区位置
+        // 热区扩展方向：向屏幕内部扩展，确保鼠标可以到达
+        let (window_w, window_h, visible_offset_x, visible_offset_y, visible_w, visible_h) = match edge {
+            LineEdge::Top => {
+                // 顶部贴边：窗口向下扩展热区，可见区域在顶部，热区在下方
+                (main_inner_size.width as i32, thickness + hotzone_extend, 0, 0, main_inner_size.width as i32, thickness)
+            }
+            LineEdge::Left => {
+                // 左侧贴边：窗口向右扩展热区，可见区域在左侧，热区在右侧
+                (thickness + hotzone_extend, main_inner_size.height as i32, 0, 0, thickness, main_inner_size.height as i32)
+            }
+            LineEdge::Right => {
+                // 右侧贴边：窗口向左扩展热区，可见区域在右侧，热区在左侧
+                (thickness + hotzone_extend, main_inner_size.height as i32, hotzone_extend, 0, thickness, main_inner_size.height as i32)
+            }
         };
 
-        // 先设置尺寸，再获取 snap_line 窗口自身的阴影偏移
-        let _ = snap_win.set_size(PhysicalSize::new(content_w as u32, content_h as u32));
+        // 先设置窗口总尺寸（包含热区）
+        let _ = snap_win.set_size(PhysicalSize::new(window_w as u32, window_h as u32));
 
         // 获取 snap_line 窗口自身的 outer/inner position 差值（阴影偏移）
         // 注意：此时窗口可能还在屏幕外 (-3000,-3000)，但 shadow_offset 与位置无关
@@ -733,29 +745,29 @@ impl WindowManager {
         let snap_shadow_x = snap_inner.x - snap_outer.x;
         let snap_shadow_y = snap_inner.y - snap_outer.y;
 
-        // 计算目标位置：让 snap_line 的内容区（经 SetWindowRgn 裁剪后的可见区域）精确贴边
-        // snap_line outer_position = 目标内容区位置 - snap_shadow_offset
+        // 计算目标位置：让可见区域精确贴边，热区向屏幕内部扩展
         let (outer_x, outer_y) = match edge {
             LineEdge::Top => {
-                // 水平线：x 对齐主窗口左边，y 对齐屏幕顶部
+                // 水平线：可见区域 y 对齐屏幕顶部，窗口从顶部开始向下扩展
                 (main_inner_pos.x - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
             }
             LineEdge::Left => {
-                // 垂直线：x 对齐屏幕左侧，y 对齐主窗口顶部
+                // 垂直线：可见区域 x 对齐屏幕左侧，窗口从左侧开始向右扩展
                 (main_inner_pos.x - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
             }
             LineEdge::Right => {
-                // 垂直线：右边对齐屏幕右侧
-                // snap_line 内容区右边 = outer_x + snap_shadow_x + content_w = 屏幕右边缘
+                // 垂直线：可见区域右边对齐屏幕右侧，窗口向左扩展热区
                 let main_right = main_inner_pos.x + main_inner_size.width as i32;
-                (main_right - content_w - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
+                // 窗口总宽度 = thickness + hotzone_extend，从右边缘向左放置
+                (main_right - window_w - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
             }
         };
 
         let _ = snap_win.set_position(PhysicalPosition::new(outer_x, outer_y));
 
-        // 用 SetWindowRgn 精确裁剪窗口区域，消除透明边框/阴影
-        set_window_exact_region(snap_win, content_w, content_h);
+        // 用 SetWindowRgn 精确裁剪窗口区域，只保留可见的黄线部分
+        // visible_offset_x/y 是可见区域相对于窗口内容区左上角的偏移
+        set_window_exact_region_with_offset(snap_win, visible_offset_x, visible_offset_y, visible_w, visible_h);
     }
 
     fn handle_window_focused<R: Runtime>(&self, window: &Window<R>) {
