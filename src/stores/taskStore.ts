@@ -266,6 +266,8 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const task = tasks.value.find(t => t.id === id)
       if (task) {
+        await invoke('stop_timer_cmd', { taskId: id })
+        timerStates.value.delete(id)
         const result = await invoke<TaskResponse>('update_task_cmd', {
           id: task.id,
           text: task.text,
