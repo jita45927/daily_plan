@@ -558,7 +558,7 @@ updateProgress(10);
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.eval("document.getElementById('progressBar').style.width = '100%';");
                 }
-                std::thread::sleep(std::time::Duration::from_secs(2));
+                std::thread::sleep(std::time::Duration::from_secs(3));
                 
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.close();
