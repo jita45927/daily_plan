@@ -440,17 +440,15 @@ pub fn run() {
 <title>欢迎</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; background: #000; }}
 .welcome-container {{
   width: 100%;
   height: 100%;
   background-image: url(data:image/jpeg;base64,{});
   background-size: cover;
   background-position: center;
-  transition: opacity 0.8s ease-out;
   position: relative;
 }}
-.welcome-container.fade-out {{ opacity: 0; }}
 .progress-section {{
   position: absolute;
   bottom: 40px;
@@ -467,7 +465,7 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 .progress-bar-container {{
   width: 100%;
   height: 4px;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.5);
   border-radius: 2px;
   overflow: hidden;
 }}
@@ -476,7 +474,7 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
   background: rgba(255, 255, 255, 0.9);
   border-radius: 2px;
   width: 0%;
-  transition: width 0.3s ease;
+  transition: width 0.5s ease;
 }}
 </style>
 </head>
@@ -491,19 +489,14 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 </div>
 <script>
 const progressBar = document.getElementById('progressBar');
-const welcomeContainer = document.getElementById('welcomeContainer');
 window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
 function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
-function fadeOut() {{
-  welcomeContainer.classList.add('fade-out');
-  setTimeout(() => {{ if (window.close) window.close(); }}, 800);
-}}
 if (window.__TAURI_IPC__) {{
   try {{
     window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
-    window.__TAURI_IPC__.listen('app_ready', () => {{ updateProgress(100); setTimeout(fadeOut, 500); }});
-  }} catch (e) {{ setTimeout(fadeOut, 3000); }}
-}} else {{ setTimeout(fadeOut, 3000); }}
+    window.__TAURI_IPC__.listen('close_welcome', () => {{ window.close(); }});
+  }} catch (e) {{ setTimeout(() => window.close(), 5000); }}
+}} else {{ setTimeout(() => window.close(), 5000); }}
 updateProgress(10);
 </script>
 </body>
@@ -530,8 +523,6 @@ updateProgress(10);
                 .visible(true)
                 .build();
 
-                let start_time = std::time::Instant::now();
-
                 std::thread::sleep(std::time::Duration::from_millis(200));
 
                 let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 20 }));
@@ -552,23 +543,14 @@ updateProgress(10);
                 let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 90 }));
 
                 let mut wait_count = 0;
-                while !APP_READY.load(Ordering::SeqCst) && wait_count < 300 {
+                while !APP_READY.load(Ordering::SeqCst) && wait_count < 500 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     wait_count += 1;
                 }
 
-                let elapsed = start_time.elapsed();
-                let min_duration = std::time::Duration::from_secs(3);
-                if elapsed < min_duration {
-                    std::thread::sleep(min_duration - elapsed);
-                }
-
                 let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 100 }));
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.close();
-                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+                let _ = app_handle.emit_to("welcome", "close_welcome", serde_json::json!({}));
             });
 
             Ok(())
