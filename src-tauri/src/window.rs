@@ -193,6 +193,13 @@ impl WindowManager {
                     }
                 }
 
+                // 如果文件夹分析窗口正在显示，则不收起主窗口（避免焦点冲突）
+                if let Some(downloads_win) = window.app_handle().get_webview_window("downloads_analyze") {
+                    if downloads_win.is_visible().unwrap_or(false) {
+                        continue;
+                    }
+                }
+
                 // 如果右键菜单窗口正在显示，则不收起主窗口
                 if let Some(menu_win) = window.app_handle().get_webview_window("context_menu") {
                     if menu_win.is_visible().unwrap_or(false) {

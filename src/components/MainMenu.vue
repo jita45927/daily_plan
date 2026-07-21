@@ -117,6 +117,35 @@ const handleEmptyRecycleBin = async () => {
   }
 }
 
+const handleOrganizeDownloads = async () => {
+  taskStore.closeMainMenu()
+
+  alert('[整理文件夹] 开始执行')
+  console.log('[整理文件夹] 开始执行')
+
+  taskStore.isAnalyzingDesktop = true
+  try {
+    console.log('[整理文件夹] 调用 analyze_downloads_cmd')
+    await invoke('analyze_downloads_cmd')
+    console.log('[整理文件夹] analyze_downloads_cmd 完成')
+  } catch (error: any) {
+    console.error('[整理文件夹] 分析目录失败:', error)
+    alert('分析目录失败:\n' + (error?.message || error?.toString() || '未知错误'))
+    return
+  } finally {
+    taskStore.isAnalyzingDesktop = false
+  }
+
+  try {
+    console.log('[整理文件夹] 调用 show_downloads_analyze_window')
+    await invoke('show_downloads_analyze_window')
+    console.log('[整理文件夹] show_downloads_analyze_window 完成')
+  } catch (error: any) {
+    console.error('[整理文件夹] 显示分析窗口失败:', error)
+    alert('显示分析窗口失败:\n' + (error?.message || error?.toString() || '未知错误'))
+  }
+}
+
 const handleContextMenu = (e: MouseEvent) => {
   if (taskStore.mainMenu.show) {
     e.preventDefault()
@@ -150,15 +179,21 @@ onUnmounted(() => {
           </button>
           <button
             @click="handleOrganizeDesktop"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-green-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors"
           >
-            整理桌面
+            整理桌面文件
+          </button>
+          <button
+            @click="handleOrganizeDownloads"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors"
+          >
+            整理文件夹
           </button>
           <button
             @click="handleCleanDuplicateFiles"
             class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors"
           >
-            清理重复文件
+            清理桌面重复文件
           </button>
           <button
             @click="handleEmptyRecycleBin"

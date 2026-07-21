@@ -11,12 +11,17 @@ use std::sync::Arc;
 use base64::Engine;
 
 use tauri::Manager;
+use tauri_plugin_dialog;
 use db::{delete_all_tasks, delete_completed_tasks, delete_task, get_all_tasks, get_db_window_config, get_deleted_tasks, insert_task, move_task_to_trash, move_completed_to_trash, move_all_to_trash, permanently_delete_task, clear_trash_by_period, reinitialize_db, reorder_tasks, restore_task, save_db_window_config, update_task};
 use desktop_sort::{
     get_desktop_path, organize_desktop, ConflictStrategy, DesktopAnalyzeManager,
     analyze_desktop_cmd, show_analyze_window, get_desktop_analysis, close_desktop_analyze,
     setup_desktop_analyze_window, check_conflicts_before_organize, ConflictFile,
     find_duplicate_files_cmd, clean_duplicate_files_cmd,
+    DownloadsAnalyzeManager,
+    analyze_downloads_cmd, show_downloads_analyze_window, get_downloads_analysis,
+    close_downloads_analyze, setup_downloads_analyze_window, check_downloads_conflicts_cmd,
+    organize_downloads_cmd, get_downloads_path_cmd,
 };
 use window::{
     get_window_config, save_window_config, set_always_on_top,
@@ -268,11 +273,13 @@ fn get_window_position(window: tauri::Window) -> Result<(f64, f64, f64, f64), St
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(WindowManager::new()))
         .manage(Arc::new(TimerManager::new()))
         .manage(Arc::new(ContextMenuManager::new()))
         .manage(Arc::new(SnapLineManager::new()))
         .manage(Arc::new(DesktopAnalyzeManager::new()))
+        .manage(Arc::new(DownloadsAnalyzeManager::new()))
         .manage(Arc::new(CleanComputerManager::new()))
         .invoke_handler(tauri::generate_handler![
             greet,
@@ -330,6 +337,13 @@ pub fn run() {
             is_main_menu_open,
             find_duplicate_files_cmd,
             clean_duplicate_files_cmd,
+            get_downloads_path_cmd,
+            organize_downloads_cmd,
+            analyze_downloads_cmd,
+            show_downloads_analyze_window,
+            get_downloads_analysis,
+            close_downloads_analyze,
+            check_downloads_conflicts_cmd,
             clean_computer_cmd,
             get_clean_computer_status,
             empty_recycle_bin_cmd,
@@ -396,6 +410,7 @@ pub fn run() {
                         let _ = setup_trash_context_menu_window(&app_handle);
                         let _ = setup_snap_line_window(&app_handle);
                         let _ = setup_desktop_analyze_window(&app_handle);
+                        let _ = setup_downloads_analyze_window(&app_handle);
                         return;
                     }
                 };
@@ -445,6 +460,7 @@ img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
                         let _ = setup_trash_context_menu_window(&app_handle);
                         let _ = setup_snap_line_window(&app_handle);
                         let _ = setup_desktop_analyze_window(&app_handle);
+                        let _ = setup_downloads_analyze_window(&app_handle);
                         return;
                     }
                 };
@@ -460,6 +476,7 @@ img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
                 let _ = setup_trash_context_menu_window(&app_handle2);
                 let _ = setup_snap_line_window(&app_handle2);
                 let _ = setup_desktop_analyze_window(&app_handle2);
+                let _ = setup_downloads_analyze_window(&app_handle2);
             });
 
             Ok(())

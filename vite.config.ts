@@ -18,6 +18,7 @@ export default defineConfig({
         snapLine: resolve(__dirname, 'snap-line.html'),
         welcome: resolve(__dirname, 'welcome.html'),
         desktopAnalyze: resolve(__dirname, 'desktop-analyze.html'),
+        downloadsAnalyze: resolve(__dirname, 'downloads-analyze.html'),
       }
     }
   }
