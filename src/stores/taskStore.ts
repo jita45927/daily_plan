@@ -269,8 +269,8 @@ export const useTaskStore = defineStore('tasks', () => {
           id: task.id,
           text: task.text,
           status: false,
-          color: '#FF0000',
-          bold: true,
+          color: task.color,
+          bold: task.bold,
           timerType: task.timerType,
           timerValue: task.timerValue,
           timerRemaining: task.timerRemaining
