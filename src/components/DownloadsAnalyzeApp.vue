@@ -32,6 +32,15 @@ const conflictList = ref<Array<{fileName: string, sourcePath: string, targetFold
 let conflictResolver: ((strategy: 'Overwrite' | 'Rename' | 'Skip' | 'Cancel') => void) | null = null
 const customPath = ref<string | null>(null)
 
+const fetchDefaultPath = async () => {
+  try {
+    const path = await invoke<string>('get_downloads_path_cmd')
+    customPath.value = path
+  } catch {
+    customPath.value = null
+  }
+}
+
 const selectFolder = async () => {
   try {
     const selected = await open({
@@ -183,6 +192,7 @@ onMounted(async () => {
     }
   }))
 
+  await fetchDefaultPath()
   await loadAnalysis()
 })
 

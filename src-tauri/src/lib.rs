@@ -22,6 +22,7 @@ use desktop_sort::{
     analyze_downloads_cmd, show_downloads_analyze_window, get_downloads_analysis,
     close_downloads_analyze, setup_downloads_analyze_window, check_downloads_conflicts_cmd,
     organize_downloads_cmd, get_downloads_path_cmd,
+    find_duplicate_files_for_folder_cmd, clean_duplicate_files_for_folder_cmd,
 };
 use window::{
     get_window_config, save_window_config, set_always_on_top,
@@ -346,6 +347,8 @@ pub fn run() {
             get_downloads_analysis,
             close_downloads_analyze,
             check_downloads_conflicts_cmd,
+            find_duplicate_files_for_folder_cmd,
+            clean_duplicate_files_for_folder_cmd,
             clean_computer_cmd,
             get_clean_computer_status,
             empty_recycle_bin_cmd,
