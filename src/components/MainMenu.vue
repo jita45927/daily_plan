@@ -10,7 +10,7 @@ const menuStyle = computed(() => {
   const x = taskStore.mainMenu.x
   const y = taskStore.mainMenu.y
   const maxX = window.innerWidth - 160
-  const maxY = window.innerHeight - 250
+  const maxY = window.innerHeight - 300
   return {
     left: `${Math.min(x, maxX)}px`,
     top: `${Math.min(y, maxY)}px`
@@ -119,101 +119,116 @@ const handleCleanFolderDuplicates = async () => {
     targetPath = null
   }
 
-  const useDefault = await new Promise<boolean>((resolve) => {
-    const dialog = document.createElement('div')
-    dialog.style.cssText = `
-      position: fixed;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.5);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 10000;
-    `
-    dialog.innerHTML = `
-      <div style="background: white; padding: 20px; border-radius: 8px; min-width: 360px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-        <h3 style="margin: 0 0 12px 0; font-size: 16px;">清理文件夹重复文件</h3>
-        <div style="margin-bottom: 16px; font-size: 13px; color: #333;">
-          <div style="margin-bottom: 8px;">默认清理系统下载目录：</div>
-          <code style="background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-size: 12px; display: block; word-break: break-all;">${targetPath || '无法获取下载目录'}</code>
-          <div style="margin-top: 8px; color: #666;">或选择其他文件夹进行清理</div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="btn-default" style="flex: 1; padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; cursor: pointer;">使用默认目录</button>
-          <button id="btn-select" style="flex: 1; padding: 8px 16px; background: #fff; color: #333; border: 1px solid #ddd; border-radius: 4px; cursor: pointer;">选择其他文件夹</button>
-          <button id="btn-cancel" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer;">取消</button>
-        </div>
-      </div>
-    `
-    document.body.appendChild(dialog)
-
-    dialog.querySelector('#btn-default')?.addEventListener('click', () => {
-      document.body.removeChild(dialog)
-      resolve(true)
-    })
-
-    dialog.querySelector('#btn-select')?.addEventListener('click', async () => {
-      document.body.removeChild(dialog)
-      try {
-        const selected = await open({
-          directory: true,
-          multiple: false,
-          title: '选择要清理重复文件的文件夹',
-        })
-        if (selected) {
-          targetPath = typeof selected === 'string' ? selected : selected[0]
-          resolve(true)
-        } else {
-          resolve(false)
-        }
-      } catch {
-        resolve(false)
+  if (!targetPath) {
+    taskStore.showErrorAlert('错误', '无法获取系统下载目录，请手动选择文件夹。')
+    try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: '选择要清理重复文件的文件夹',
+      })
+      if (selected) {
+        targetPath = typeof selected === 'string' ? selected : selected[0]
       }
-    })
-
-    dialog.querySelector('#btn-cancel')?.addEventListener('click', () => {
-      document.body.removeChild(dialog)
-      resolve(false)
-    })
-  })
-
-  if (!useDefault || !targetPath) {
-    return
+    } catch {}
+    if (!targetPath) return
   }
 
   taskStore.showConfirm(
     '清理文件夹重复文件',
-    `确定要清理以下文件夹中的重复文件吗？\n\n` +
-    `目录：${targetPath}\n\n` +
-    '将扫描以下子文件夹中的文件：\n' +
-    '• 可执行文件\n' +
-    '• 图片文件\n' +
-    '• 其他文件\n' +
-    '• 压缩包\n\n' +
-    '对于内容完全相同但名称不同的文件：\n' +
-    '• 保留按名称排序的第一个文件\n' +
-    '• 其余文件将被移到回收站\n\n' +
-    '注意：只扫描文件，不扫描文件夹。',
+    `默认清理系统下载目录：\n\n${targetPath}\n\n` +
+    '是否需要选择其他文件夹进行清理？',
     async () => {
-      taskStore.isCleaningDuplicates = true
-      try {
-        const result = await invoke<[number, number, string[]]>('clean_duplicate_files_for_folder_cmd', { folderPath: targetPath })
-        const [groups, moved, errors] = result
-        let msg = `清理完成！\n\n发现 ${groups} 组重复文件\n已移入回收站 ${moved} 个文件`
-        if (errors.length > 0) {
-          msg += `\n\n错误 ${errors.length} 个：\n${errors.slice(0, 5).join('\n')}`
-        }
-        if (groups === 0) {
-          msg = '未发现重复文件。\n\n请确认已使用"整理文件夹"功能将文件分类到四个文件夹中。'
-        }
-        taskStore.showConfirm('提示', msg, () => {})
-      } catch (error: any) {
-        console.error('[清理文件夹重复文件] 失败:', error)
-        taskStore.showErrorAlert(
-          '清理失败',
-          '清理文件夹重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
-        )
-      } finally {
-        taskStore.isCleaningDuplicates = false
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: '选择要清理重复文件的文件夹',
+      })
+      if (selected) {
+        targetPath = typeof selected === 'string' ? selected : selected[0]
       }
+      
+      if (!targetPath) {
+        taskStore.showErrorAlert('错误', '未选择任何文件夹。')
+        return
+      }
+      
+      taskStore.showConfirm(
+        '清理文件夹重复文件',
+        `确定要清理以下文件夹中的重复文件吗？\n\n` +
+        `目录：${targetPath}\n\n` +
+        '将扫描以下子文件夹中的文件：\n' +
+        '• 可执行文件\n' +
+        '• 图片文件\n' +
+        '• 其他文件\n' +
+        '• 压缩包\n\n' +
+        '对于内容完全相同但名称不同的文件：\n' +
+        '• 保留按名称排序的第一个文件\n' +
+        '• 其余文件将被移到回收站\n\n' +
+        '注意：只扫描文件，不扫描文件夹。',
+        async () => {
+          taskStore.isCleaningDuplicates = true
+          try {
+            const result = await invoke<[number, number, string[]]>('clean_duplicate_files_for_folder_cmd', { folderPath: targetPath })
+            const [groups, moved, errors] = result
+            let msg = `清理完成！\n\n发现 ${groups} 组重复文件\n已移入回收站 ${moved} 个文件`
+            if (errors.length > 0) {
+              msg += `\n\n错误 ${errors.length} 个：\n${errors.slice(0, 5).join('\n')}`
+            }
+            if (groups === 0) {
+              msg = '未发现重复文件。\n\n请确认已使用"整理文件夹"功能将文件分类到四个文件夹中。'
+            }
+            taskStore.showConfirm('提示', msg, () => {})
+          } catch (error: any) {
+            console.error('[清理文件夹重复文件] 失败:', error)
+            taskStore.showErrorAlert(
+              '清理失败',
+              '清理文件夹重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
+            )
+          } finally {
+            taskStore.isCleaningDuplicates = false
+          }
+        }
+      )
+    },
+    () => {
+      taskStore.showConfirm(
+        '清理文件夹重复文件',
+        `确定要清理以下文件夹中的重复文件吗？\n\n` +
+        `目录：${targetPath}\n\n` +
+        '将扫描以下子文件夹中的文件：\n' +
+        '• 可执行文件\n' +
+        '• 图片文件\n' +
+        '• 其他文件\n' +
+        '• 压缩包\n\n' +
+        '对于内容完全相同但名称不同的文件：\n' +
+        '• 保留按名称排序的第一个文件\n' +
+        '• 其余文件将被移到回收站\n\n' +
+        '注意：只扫描文件，不扫描文件夹。',
+        async () => {
+          taskStore.isCleaningDuplicates = true
+          try {
+            const result = await invoke<[number, number, string[]]>('clean_duplicate_files_for_folder_cmd', { folderPath: targetPath })
+            const [groups, moved, errors] = result
+            let msg = `清理完成！\n\n发现 ${groups} 组重复文件\n已移入回收站 ${moved} 个文件`
+            if (errors.length > 0) {
+              msg += `\n\n错误 ${errors.length} 个：\n${errors.slice(0, 5).join('\n')}`
+            }
+            if (groups === 0) {
+              msg = '未发现重复文件。\n\n请确认已使用"整理文件夹"功能将文件分类到四个文件夹中。'
+            }
+            taskStore.showConfirm('提示', msg, () => {})
+          } catch (error: any) {
+            console.error('[清理文件夹重复文件] 失败:', error)
+            taskStore.showErrorAlert(
+              '清理失败',
+              '清理文件夹重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
+            )
+          } finally {
+            taskStore.isCleaningDuplicates = false
+          }
+        }
+      )
     }
   )
 }
@@ -226,6 +241,71 @@ const handleEmptyRecycleBin = async () => {
     console.error('[清空回收站] 失败:', error)
     alert('清空回收站失败:\n' + (error?.message || error?.toString() || '未知错误'))
   }
+}
+
+const handleShowHelp = () => {
+  taskStore.closeMainMenu()
+  
+  const helpDialog = document.createElement('div')
+  helpDialog.style.cssText = `
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  `
+  
+  helpDialog.innerHTML = `
+    <div style="background: white; border-radius: 8px; width: 500px; max-height: 600px; box-shadow: 0 15px 35px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column;">
+      <div style="background: #2563eb; color: white; padding: 14px 18px; font-size: 16px; font-weight: 600;">帮助</div>
+      <div style="flex: 1; overflow-y: auto; padding: 16px 18px; font-size: 13px; color: #374151;">
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">清理电脑</div>
+          <div style="color: #6b7280; line-height: 1.5;">安全清理系统垃圾文件，包括用户临时文件、浏览器缓存、Windows 更新缓存、缩略图缓存和系统日志等。清理过程在后台执行，不影响其他功能。</div>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">整理桌面文件</div>
+          <div style="color: #6b7280; line-height: 1.5;">分析桌面上的所有文件和文件夹，将其分类到"程序快捷方式"、"其他快捷方式"、"桌面整理文件"和"桌面图片文件"四个文件夹中。</div>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">整理文件夹</div>
+          <div style="color: #6b7280; line-height: 1.5;">分析指定文件夹（默认系统下载目录）中的文件，将其分类到"可执行文件"、"图片文件"、"其他文件"和"压缩包"四个文件夹中。</div>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">清理桌面重复文件</div>
+          <div style="color: #6b7280; line-height: 1.5;">扫描桌面上的四个分类文件夹，找出内容完全相同但名称不同的文件。保留按名称排序的第一个文件，其余文件移到回收站。</div>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">清理文件夹重复文件</div>
+          <div style="color: #6b7280; line-height: 1.5;">扫描指定文件夹（默认系统下载目录）中的四个分类子文件夹，找出内容完全相同但名称不同的文件。保留按名称排序的第一个文件，其余文件移到回收站。</div>
+        </div>
+        <div style="margin-bottom: 16px;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">清空回收站</div>
+          <div style="color: #6b7280; line-height: 1.5;">调用系统 API 清空回收站，会显示系统原生确认对话框和进度条。</div>
+        </div>
+        <div style="margin-bottom: 16px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
+          <div style="font-weight: 600; color: #1f2937; margin-bottom: 4px;">快捷键</div>
+          <div style="color: #6b7280; line-height: 1.5;">• 左键单击主窗口按钮：打开命令菜单<br>• 右键单击任务：打开右键菜单<br>• 拖动主窗口：移动窗口位置</div>
+        </div>
+      </div>
+      <div style="padding: 12px 18px; background: #f9fafb; border-top: 1px solid #e5e7eb;">
+        <button id="btn-close-help" style="width: 100%; padding: 8px 16px; background: #2563eb; color: white; border: none; border-radius: 4px; font-size: 13px; cursor: pointer;">关闭</button>
+      </div>
+    </div>
+  `
+  
+  document.body.appendChild(helpDialog)
+  
+  helpDialog.querySelector('#btn-close-help')?.addEventListener('click', () => {
+    document.body.removeChild(helpDialog)
+  })
+  
+  helpDialog.addEventListener('click', (e) => {
+    if (e.target === helpDialog) {
+      document.body.removeChild(helpDialog)
+    }
+  })
 }
 
 const handleOrganizeDownloads = async () => {
@@ -277,39 +357,46 @@ onUnmounted(() => {
         <div class="p-2">
           <button
             @click="handleCleanComputer"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors text-left"
           >
             清理电脑
           </button>
           <button
             @click="handleOrganizeDesktop"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors text-left"
           >
             整理桌面文件
           </button>
           <button
             @click="handleOrganizeDownloads"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors text-left"
           >
             整理文件夹
           </button>
           <button
             @click="handleCleanDuplicateFiles"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors text-left"
           >
             清理桌面重复文件
           </button>
           <button
             @click="handleCleanFolderDuplicates"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors text-left"
           >
             清理文件夹重复文件
           </button>
           <button
             @click="handleEmptyRecycleBin"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-red-50 rounded transition-colors"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-red-50 rounded transition-colors text-left"
           >
             清空回收站
+          </button>
+          <div class="border-t border-gray-200 my-2"></div>
+          <button
+            @click="handleShowHelp"
+            class="block w-full px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded transition-colors text-left"
+          >
+            帮助
           </button>
         </div>
       </div>

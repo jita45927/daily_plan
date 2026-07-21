@@ -1310,46 +1310,9 @@ pub fn clean_duplicate_files_cmd() -> Result<(usize, usize, Vec<String>), String
 // ==================== 文件夹分析功能 ====================
 
 pub fn get_downloads_path() -> Result<String, String> {
-    let path: PathBuf;
-    
-    #[cfg(windows)]
-    {
-        use std::ffi::OsString;
-        use std::os::windows::ffi::OsStringExt;
-        use windows_sys::Win32::UI::Shell::SHGetFolderPathW;
-        use windows_sys::Win32::Foundation::MAX_PATH;
-        
-        const CSIDL_DOWNLOADS: i32 = 0x002C;
-        
-        let mut buffer: [u16; MAX_PATH as usize] = [0; MAX_PATH as usize];
-        
-        let result = unsafe {
-            SHGetFolderPathW(
-                0,
-                CSIDL_DOWNLOADS,
-                0,
-                0,
-                buffer.as_mut_ptr()
-            )
-        };
-        
-        if result != 0 {
-            return Err("获取下载目录路径失败".to_string());
-        }
-        
-        let len = buffer.iter().position(|&c| c == 0).unwrap_or(MAX_PATH as usize);
-        let wide_str = &buffer[0..len];
-        let os_string = OsString::from_wide(wide_str);
-        
-        path = PathBuf::from(os_string);
-    }
-    
-    #[cfg(not(windows))]
-    {
-        path = dirs::download_dir().ok_or("无法获取下载目录路径")?;
-    }
-    
-    path.to_str().map(|s| s.to_string()).ok_or("下载目录路径转换失败".to_string())
+    dirs::download_dir()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+        .ok_or("无法获取系统下载目录".to_string())
 }
 
 #[derive(Debug, Clone, Serialize)]

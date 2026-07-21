@@ -170,6 +170,41 @@ impl TimerManager {
         Ok("定时任务已启动".to_string())
     }
 
+    pub fn restore_scheduled_timer(
+        &self,
+        app_handle: tauri::AppHandle,
+        task_id: i64,
+        target_timestamp: u64,
+    ) -> Result<String, String> {
+        let current_time = Self::get_current_timestamp();
+        if target_timestamp <= current_time {
+            return Err("目标时间已过期".to_string());
+        }
+
+        self.stop_timer(task_id);
+
+        let timer = Timer {
+            task_id,
+            timer_type: "scheduled".to_string(),
+            target_time: target_timestamp,
+            is_running: true,
+        };
+
+        {
+            let mut timers = self.timers.lock().unwrap();
+            timers.push(timer);
+        }
+
+        Self::spawn_timer_task(
+            app_handle,
+            self.timers.clone(),
+            task_id,
+            "scheduled".to_string(),
+        );
+
+        Ok("定时任务已恢复".to_string())
+    }
+
     pub fn stop_timer(&self, task_id: i64) {
         {
             let mut timers = self.timers.lock().unwrap();
@@ -272,6 +307,16 @@ pub fn start_scheduled_timer_cmd(
     target_timestamp: u64,
 ) -> Result<String, String> {
     timer_manager.start_scheduled_timer(app_handle, task_id, target_timestamp)
+}
+
+#[tauri::command]
+pub fn restore_scheduled_timer_cmd(
+    app_handle: tauri::AppHandle,
+    timer_manager: tauri::State<'_, Arc<TimerManager>>,
+    task_id: i64,
+    target_timestamp: u64,
+) -> Result<String, String> {
+    timer_manager.restore_scheduled_timer(app_handle, task_id, target_timestamp)
 }
 
 #[tauri::command]

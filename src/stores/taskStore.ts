@@ -203,8 +203,93 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const result = await invoke<TaskResponse[]>('get_all_tasks_cmd')
       tasks.value = result
+      await restoreTimers()
     } catch (error) {
       await handleDbError(error, '加载任务')
+    }
+  }
+
+  const restoreTimers = async () => {
+    for (const task of tasks.value) {
+      if (!task.timerType || task.timerType === '' || task.timerValue <= 0) {
+        continue
+      }
+
+      const currentTime = Math.floor(Date.now() / 1000)
+
+      if (task.timerType === 'countdown') {
+        if (currentTime >= task.timerValue) {
+          task.timerRemaining = 0
+          task.timerType = ''
+          task.timerValue = 0
+          task.status = true
+          task.color = '#000000'
+          task.bold = false
+          await invoke('update_task_cmd', {
+            id: task.id,
+            text: task.text,
+            status: true,
+            color: '#000000',
+            bold: false,
+            timerType: '',
+            timerValue: 0,
+            timerRemaining: 0
+          })
+        } else {
+          const remainingSeconds = task.timerValue - currentTime
+          task.timerRemaining = remainingSeconds
+          await invoke('update_task_cmd', {
+            id: task.id,
+            text: task.text,
+            status: task.status,
+            color: task.color,
+            bold: task.bold,
+            timerType: task.timerType,
+            timerValue: task.timerValue,
+            timerRemaining: remainingSeconds
+          })
+          await invoke('restore_scheduled_timer_cmd', {
+            taskId: task.id,
+            targetTimestamp: task.timerValue
+          })
+        }
+      } else if (task.timerType === 'scheduled') {
+        if (currentTime >= task.timerValue) {
+          task.timerRemaining = 0
+          task.timerType = ''
+          task.timerValue = 0
+          task.status = true
+          task.color = '#000000'
+          task.bold = false
+          await invoke('update_task_cmd', {
+            id: task.id,
+            text: task.text,
+            status: true,
+            color: '#000000',
+            bold: false,
+            timerType: '',
+            timerValue: 0,
+            timerRemaining: 0
+          })
+        } else {
+          const remainingSeconds = task.timerValue - currentTime
+          task.timerRemaining = remainingSeconds
+          await invoke('update_task_cmd', {
+            id: task.id,
+            text: task.text,
+            status: task.status,
+            color: task.color,
+            bold: task.bold,
+            timerType: task.timerType,
+            timerValue: task.timerValue,
+            timerRemaining: remainingSeconds
+          })
+          await invoke('restore_scheduled_timer_cmd', {
+            taskId: task.id,
+            targetTimestamp: task.timerValue
+          })
+        }
+      }
     }
   }
 
@@ -509,7 +594,8 @@ export const useTaskStore = defineStore('tasks', () => {
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
         task.timerType = 'countdown'
-        task.timerValue = minutes * 60
+        const targetTimestamp = Math.floor(Date.now() / 1000) + minutes * 60
+        task.timerValue = targetTimestamp
         task.timerRemaining = minutes * 60
         task.status = false
         task.color = '#000000'
@@ -521,7 +607,7 @@ export const useTaskStore = defineStore('tasks', () => {
           color: '#000000',
           bold: false,
           timerType: 'countdown',
-          timerValue: minutes * 60,
+          timerValue: targetTimestamp,
           timerRemaining: minutes * 60
         })
       }
@@ -817,7 +903,9 @@ export const useTaskStore = defineStore('tasks', () => {
     const { task_id, timerType, lastTimerValue } = expiredTask.value
     if (timerType === 'countdown') {
       const minutes = Math.floor(lastTimerValue / 60)
-      await startCountdown(task_id, minutes)
+      if (minutes > 0) {
+        await startCountdown(task_id, minutes)
+      }
     } else if (timerType === 'scheduled') {
       const currentTime = Math.floor(Date.now() / 1000)
       const newTarget = currentTime + lastTimerValue
