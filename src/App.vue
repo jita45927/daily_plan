@@ -228,10 +228,12 @@ onMounted(async () => {
   await listen('app_focused', handleAppFocused)
   await listen('context_menu_command', handleContextMenuCommand)
   await listen('trash_context_menu_command', handleTrashContextMenuCommand)
+  await listen('clean-computer-progress', taskStore.handleCleanComputerProgress)
+  await listen('clean-computer-done', taskStore.handleCleanComputerDone)
   await listen('window_collapsed', () => {
     taskStore.closeMainMenu()
   })
-  
+
   document.addEventListener('mouseup', handleMouseUp)
 })
 
@@ -286,7 +288,53 @@ onUnmounted(() => {
         </div>
       </Transition>
     </Teleport>
-    
+
+    <!-- 清理电脑：非阻塞浮动徽章（不阻挡主窗口其他功能） -->
+    <Teleport to="body">
+      <Transition name="slide-fade">
+        <div
+          v-if="taskStore.isCleaningComputer"
+          class="fixed bottom-3 right-3 z-40 bg-blue-500 text-white rounded-lg shadow-lg px-3 py-2 max-w-[260px] no-drag"
+          style="pointer-events: auto;"
+        >
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
+            <span class="text-xs font-semibold">清理电脑中...</span>
+          </div>
+          <div class="text-[11px] text-white/90 leading-relaxed">
+            <div>当前: {{ taskStore.cleanComputerStats?.currentCategory || '初始化' }}</div>
+            <div>
+              已删 {{ taskStore.cleanComputerStats?.deleted || 0 }} 个 ·
+              跳过 {{ taskStore.cleanComputerStats?.skipped || 0 }} 个
+            </div>
+            <div>
+              释放 {{ taskStore.formatBytes(taskStore.cleanComputerStats?.freedBytes || 0) }}
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 清理电脑：完成通知（可关闭） -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="taskStore.cleanComputerNotice.show" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-6 shadow-xl max-w-sm mx-4">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">{{ taskStore.cleanComputerNotice.title }}</h3>
+            <p class="text-gray-600 mb-4 whitespace-pre-wrap text-sm">{{ taskStore.cleanComputerNotice.message }}</p>
+            <div class="flex justify-end">
+              <button
+                @click="taskStore.hideCleanComputerNotice"
+                class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <Teleport to="body">
       <Transition name="fade">
         <div v-if="taskStore.errorAlert.show" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
@@ -307,3 +355,25 @@ onUnmounted(() => {
     </Teleport>
   </div>
 </template>
+
+<style scoped>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+.slide-fade-enter-active {
+  transition: all 0.25s ease;
+}
+.slide-fade-leave-active {
+  transition: all 0.2s ease;
+}
+.slide-fade-enter-from,
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+</style>

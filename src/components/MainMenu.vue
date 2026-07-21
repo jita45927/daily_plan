@@ -18,6 +18,30 @@ const menuStyle = computed(() => {
 
 const handleCleanComputer = () => {
   taskStore.closeMainMenu()
+
+  if (taskStore.isCleaningComputer) {
+    taskStore.showErrorAlert('提示', '清理任务正在进行中，请等待完成。')
+    return
+  }
+
+  taskStore.showConfirm(
+    '清理电脑',
+    '将安全清理以下垃圾文件（后台执行，不影响其他功能）：\n\n' +
+    '• 用户临时文件（7 天以上）\n' +
+    '• 系统临时文件（7 天以上）\n' +
+    '• 浏览器缓存（Edge/Chrome/Firefox）\n' +
+    '• Windows 更新缓存\n' +
+    '• 缩略图缓存\n' +
+    '• 系统日志（7 天以上）\n\n' +
+    '安全保证：\n' +
+    '• 仅清理白名单目录，不删除用户文档\n' +
+    '• 占用/权限不足的文件自动跳过\n' +
+    '• 清理在后台线程执行，主窗口可继续使用\n\n' +
+    '点击"确定"开始清理。',
+    () => {
+      taskStore.startCleanComputer()
+    }
+  )
 }
 
 const handleOrganizeDesktop = async () => {
@@ -83,6 +107,16 @@ const handleCleanDuplicateFiles = () => {
   )
 }
 
+const handleEmptyRecycleBin = async () => {
+  taskStore.closeMainMenu()
+  try {
+    await invoke('empty_recycle_bin_cmd')
+  } catch (error: any) {
+    console.error('[清空回收站] 失败:', error)
+    alert('清空回收站失败:\n' + (error?.message || error?.toString() || '未知错误'))
+  }
+}
+
 const handleContextMenu = (e: MouseEvent) => {
   if (taskStore.mainMenu.show) {
     e.preventDefault()
@@ -125,6 +159,12 @@ onUnmounted(() => {
             class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors"
           >
             清理重复文件
+          </button>
+          <button
+            @click="handleEmptyRecycleBin"
+            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-red-50 rounded transition-colors"
+          >
+            清空回收站
           </button>
         </div>
       </div>

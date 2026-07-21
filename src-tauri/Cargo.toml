@@ -25,7 +25,7 @@ base64 = "0.22"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_System_SystemServices"] }
-winapi = { version = "0.3", features = ["winuser", "wingdi", "windef", "dwmapi"] }
+winapi = { version = "0.3", features = ["winuser", "wingdi", "windef", "dwmapi", "winreg"] }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_UI_Shell",

@@ -157,28 +157,62 @@ fn read_lnk_target(lnk_path: &str) -> Option<String> {
 fn is_desktop_icon_visible(clsid: &str) -> bool {
     #[cfg(windows)]
     {
-        let paths = [
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel",
-            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\ClassicStartPanel",
+        use winapi::shared::minwindef::{DWORD, HKEY, LPBYTE};
+        use winapi::um::winreg::{RegOpenKeyExW, RegQueryValueExW, RegCloseKey, HKEY_CURRENT_USER};
+        use std::ffi::OsString;
+        use std::os::windows::ffi::OsStrExt;
+
+        const KEY_READ: DWORD = 0x20019;
+        const REG_DWORD: DWORD = 4;
+
+        fn to_wide(s: &str) -> Vec<u16> {
+            OsString::from(s)
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect()
+        }
+
+        unsafe fn read_reg_dword(hkey: HKEY, subkey: &str, value_name: &str) -> Option<u32> {
+            let subkey_wide = to_wide(subkey);
+            let mut hk_result: HKEY = std::ptr::null_mut();
+            
+            if RegOpenKeyExW(hkey, subkey_wide.as_ptr(), 0, KEY_READ, &mut hk_result) != 0 {
+                return None;
+            }
+
+            let value_name_wide = to_wide(value_name);
+            let mut data_type: DWORD = 0;
+            let mut data: DWORD = 0;
+            let mut data_size: DWORD = std::mem::size_of::<DWORD>() as DWORD;
+
+            let result = RegQueryValueExW(
+                hk_result,
+                value_name_wide.as_ptr(),
+                std::ptr::null_mut(),
+                &mut data_type,
+                &mut data as *mut _ as LPBYTE,
+                &mut data_size,
+            );
+
+            RegCloseKey(hk_result);
+
+            if result == 0 && data_type == REG_DWORD {
+                Some(data)
+            } else {
+                None
+            }
+        }
+
+        let subkeys = [
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\NewStartPanel",
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\HideDesktopIcons\ClassicStartPanel",
         ];
 
-        for path in &paths {
-            let output = std::process::Command::new("reg")
-                .args(["query", path, "/v", clsid])
-                .output();
-
-            if let Ok(output) = output {
-                if output.status.success() {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    // 值为 0x1 表示隐藏
-                    if stdout.contains("0x1") {
-                        return false;
-                    }
-                    // 值为 0x0 表示显示
-                    if stdout.contains("0x0") {
-                        return true;
-                    }
-                }
+        for subkey in &subkeys {
+            if let Some(value) = unsafe { read_reg_dword(HKEY_CURRENT_USER, subkey, clsid) } {
+                // 值为 0x1 表示隐藏，值为 0x0 表示显示
+                return value != 1;
             }
         }
 
@@ -283,11 +317,21 @@ fn analyze_desktop_inner(
 
     println!("[桌面分析] 枚举完成，共 {} 项", items.len());
 
-    let virtual_count = items.iter().filter(|i| i.category == "virtual").count();
-    let program_shortcut_count = items.iter().filter(|i| i.category == "programShortcut").count();
-    let other_shortcut_count = items.iter().filter(|i| i.category == "otherShortcut").count();
-    let image_count = items.iter().filter(|i| i.category == "image").count();
-    let regular_count = items.iter().filter(|i| i.category == "regular").count();
+    let mut virtual_count = 0;
+    let mut program_shortcut_count = 0;
+    let mut other_shortcut_count = 0;
+    let mut image_count = 0;
+    let mut regular_count = 0;
+
+    for item in &items {
+        match item.category.as_str() {
+            "virtual" => virtual_count += 1,
+            "programShortcut" => program_shortcut_count += 1,
+            "otherShortcut" => other_shortcut_count += 1,
+            "image" => image_count += 1,
+            _ => regular_count += 1,
+        }
+    }
 
     Ok(DesktopAnalysis {
         desktop_path: desktop_path.to_string(),

@@ -128,15 +128,27 @@ fn is_db_corrupted(error: &SqliteError) -> bool {
     error_str.contains("file is encrypted or is not a database")
 }
 
+fn sanitize_color(color: &str) -> String {
+    let color = color.trim();
+    if color.len() == 7 && color.starts_with('#') {
+        let hex = &color[1..];
+        if hex.chars().all(|c| c.is_ascii_hexdigit()) {
+            return format!("#{}", hex.to_uppercase());
+        }
+    }
+    "#000000".to_string()
+}
+
 fn connect_with_recovery() -> Result<Connection> {
     let db_path = get_db_path();
     
     match Connection::open(&db_path) {
         Ok(conn) => {
             if conn.execute("SELECT 1", []).is_ok() {
+                create_tables(&conn)?;
                 Ok(conn)
             } else {
-                if fs::remove_file(&db_path).is_err() {}
+                let _ = fs::remove_file(&db_path);
                 let conn = Connection::open(&db_path)?;
                 create_tables(&conn)?;
                 Ok(conn)
@@ -180,6 +192,7 @@ pub fn insert_task(
     create_tables(&conn)?;
 
     let created_at = chrono::Local::now().to_rfc3339();
+    let safe_color = sanitize_color(color);
 
     let max_order: i32 = conn
         .query_row(
@@ -193,14 +206,14 @@ pub fn insert_task(
     conn.execute(
         "INSERT INTO tasks (text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index],
+        params![text, status, safe_color, bold, timer_type, timer_value, timer_remaining, created_at, order_index],
     )?;
 
     Ok(Task {
         id: conn.last_insert_rowid(),
         text: text.to_string(),
         status,
-        color: color.to_string(),
+        color: safe_color,
         bold,
         timer_type: timer_type.to_string(),
         timer_value,
@@ -251,9 +264,11 @@ pub fn update_task(
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
+    let safe_color = sanitize_color(color);
+
     conn.execute(
         "UPDATE tasks SET text = ?1, status = ?2, color = ?3, bold = ?4, timer_type = ?5, timer_value = ?6, timer_remaining = ?7 WHERE id = ?8",
-        params![text, status, color, bold, timer_type, timer_value, timer_remaining, id],
+        params![text, status, safe_color, bold, timer_type, timer_value, timer_remaining, id],
     )?;
 
     let mut stmt = conn.prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks WHERE id = ?1")?;

@@ -1,12 +1,11 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tauri::async_runtime::{JoinHandle, spawn};
+use tauri::async_runtime::spawn;
 use tokio::time::interval;
 use tauri::Emitter;
 
 pub struct TimerManager {
     timers: Arc<Mutex<Vec<Timer>>>,
-    handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
 }
 
 struct Timer {
@@ -20,7 +19,6 @@ impl TimerManager {
     pub fn new() -> Self {
         TimerManager {
             timers: Arc::new(Mutex::new(Vec::new())),
-            handles: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -29,6 +27,70 @@ impl TimerManager {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs()
+    }
+
+    fn spawn_timer_task(
+        app_handle: tauri::AppHandle,
+        timers: Arc<Mutex<Vec<Timer>>>,
+        task_id: i64,
+        timer_type: String,
+    ) {
+        spawn(async move {
+            let mut interval = interval(Duration::from_secs(1));
+            loop {
+                interval.tick().await;
+
+                let current_time = Self::get_current_timestamp();
+                let mut timers_lock = timers.lock().unwrap();
+
+                let (remaining, is_running) = timers_lock
+                    .iter_mut()
+                    .find(|t| t.task_id == task_id)
+                    .map(|t| {
+                        let remaining = if current_time >= t.target_time {
+                            0
+                        } else {
+                            t.target_time - current_time
+                        };
+                        (remaining, t.is_running)
+                    })
+                    .unwrap_or((0, false));
+
+                if !is_running {
+                    break;
+                }
+
+                let hours = remaining / 3600;
+                let minutes = (remaining % 3600) / 60;
+                let seconds = remaining % 60;
+
+                let _ = app_handle.emit(
+                    "timer_update",
+                    serde_json::json!({
+                        "task_id": task_id,
+                        "remaining": remaining,
+                        "hours": hours,
+                        "minutes": minutes,
+                        "seconds": seconds,
+                        "formatted": format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+                    })
+                );
+
+                if remaining == 0 {
+                    if let Some(timer) = timers_lock.iter_mut().find(|t| t.task_id == task_id) {
+                        timer.is_running = false;
+                    }
+                    let _ = app_handle.emit(
+                        "timer_expired",
+                        serde_json::json!({
+                            "task_id": task_id,
+                            "timerType": timer_type
+                        })
+                    );
+                    break;
+                }
+            }
+        });
     }
 
     pub fn start_countdown(
@@ -59,66 +121,12 @@ impl TimerManager {
             timers.push(timer);
         }
 
-        let app_handle_clone = app_handle.clone();
-        let timers_clone = self.timers.clone();
-        let task_id_clone = task_id;
-
-        let handle = spawn(async move {
-            let mut interval = interval(Duration::from_secs(1));
-            loop {
-                interval.tick().await;
-
-                let current_time = TimerManager::get_current_timestamp();
-                let mut timers = timers_clone.lock().unwrap();
-
-                if let Some(timer) = timers.iter_mut().find(|t| t.task_id == task_id_clone) {
-                    if !timer.is_running {
-                        break;
-                    }
-
-                    let remaining = if current_time >= timer.target_time {
-                        0
-                    } else {
-                        timer.target_time - current_time
-                    };
-
-                    let hours = remaining / 3600;
-                    let minutes = (remaining % 3600) / 60;
-                    let seconds = remaining % 60;
-
-                    let _ = app_handle_clone.emit(
-                        "timer_update",
-                        serde_json::json!({
-                            "task_id": task_id_clone,
-                            "remaining": remaining,
-                            "hours": hours,
-                            "minutes": minutes,
-                            "seconds": seconds,
-                            "formatted": format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-                        })
-                    );
-
-                    if remaining == 0 {
-                        timer.is_running = false;
-                        let _ = app_handle_clone.emit(
-                            "timer_expired",
-                            serde_json::json!({
-                                "task_id": task_id_clone,
-                                "timerType": "countdown"
-                            })
-                        );
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-        });
-
-        {
-            let mut handles = self.handles.lock().unwrap();
-            handles.push(handle);
-        }
+        Self::spawn_timer_task(
+            app_handle,
+            self.timers.clone(),
+            task_id,
+            "countdown".to_string(),
+        );
 
         Ok(format!("倒计时已启动，时长 {} 分钟", minutes))
     }
@@ -148,66 +156,12 @@ impl TimerManager {
             timers.push(timer);
         }
 
-        let app_handle_clone = app_handle.clone();
-        let timers_clone = self.timers.clone();
-        let task_id_clone = task_id;
-
-        let handle = spawn(async move {
-            let mut interval = interval(Duration::from_secs(1));
-            loop {
-                interval.tick().await;
-
-                let current_time = TimerManager::get_current_timestamp();
-                let mut timers = timers_clone.lock().unwrap();
-
-                if let Some(timer) = timers.iter_mut().find(|t| t.task_id == task_id_clone) {
-                    if !timer.is_running {
-                        break;
-                    }
-
-                    let remaining = if current_time >= timer.target_time {
-                        0
-                    } else {
-                        timer.target_time - current_time
-                    };
-
-                    let hours = remaining / 3600;
-                    let minutes = (remaining % 3600) / 60;
-                    let seconds = remaining % 60;
-
-                    let _ = app_handle_clone.emit(
-                        "timer_update",
-                        serde_json::json!({
-                            "task_id": task_id_clone,
-                            "remaining": remaining,
-                            "hours": hours,
-                            "minutes": minutes,
-                            "seconds": seconds,
-                            "formatted": format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
-                        })
-                    );
-
-                    if remaining == 0 {
-                        timer.is_running = false;
-                        let _ = app_handle_clone.emit(
-                            "timer_expired",
-                            serde_json::json!({
-                                "task_id": task_id_clone,
-                                "timerType": "scheduled"
-                            })
-                        );
-                        break;
-                    }
-                } else {
-                    break;
-                }
-            }
-        });
-
-        {
-            let mut handles = self.handles.lock().unwrap();
-            handles.push(handle);
-        }
+        Self::spawn_timer_task(
+            app_handle,
+            self.timers.clone(),
+            task_id,
+            "scheduled".to_string(),
+        );
 
         Ok("定时任务已启动".to_string())
     }

@@ -81,52 +81,17 @@ fn calc_trash_menu_height() -> f64 {
     CONTAINER_PADDING + BTN_HEIGHT * 2.0 + DIVIDER_HEIGHT + SECTION_TITLE_HEIGHT + BTN_HEIGHT * 4.0 + 4.0
 }
 
-pub fn setup_context_menu_window<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
-    let menu_win = tauri::WebviewWindowBuilder::new(
-        app,
-        "context_menu",
-        WebviewUrl::App("/context-menu.html".into()),
-    )
-    .title("右键菜单")
-    .inner_size(MENU_WIDTH, 310.0)
-    .decorations(false)
-    .transparent(false)
-    .always_on_top(true)
-    .visible(false)
-    .skip_taskbar(true)
-    .resizable(false)
-    .position(-3000.0, -3000.0)
-    .build()
-    .map_err(|e| format!("failed to create context menu window: {:?}", e))?;
-
-    let win_clone = menu_win.clone();
-    menu_win.on_window_event(move |event| {
-        if let tauri::WindowEvent::Focused(false) = event {
-            let _ = win_clone.hide();
-        }
-    });
-
-    Ok(())
-}
-
-#[tauri::command]
-pub fn show_context_menu<R: Runtime>(
-    window: Window<R>,
+/// 计算菜单位置（避免超出屏幕边界）
+fn calculate_menu_position<R: Runtime>(
+    window: &Window<R>,
     screen_x: f64,
     screen_y: f64,
-    task: ContextMenuTask,
-) {
-    let app = window.app_handle();
-    let manager = app.state::<Arc<ContextMenuManager>>();
-    manager.set_current_task(task.clone());
-
-    let menu_width = MENU_WIDTH;
-    let menu_height = calc_main_menu_height(task.status);
-
+    menu_width: f64,
+    menu_height: f64,
+) -> Option<(i32, i32)> {
     let monitor = match window.current_monitor() {
         Ok(Some(m)) => m,
-        Ok(None) => return,
-        Err(_) => return,
+        _ => return None,
     };
 
     let scale = monitor.scale_factor();
@@ -178,9 +143,66 @@ pub fn show_context_menu<R: Runtime>(
         final_y = wa_pos.y as f64;
     }
 
+    Some((final_x as i32, final_y as i32))
+}
+
+pub fn setup_context_menu_window<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    let menu_win = tauri::WebviewWindowBuilder::new(
+        app,
+        "context_menu",
+        WebviewUrl::App("/context-menu.html".into()),
+    )
+    .title("右键菜单")
+    .inner_size(MENU_WIDTH, 310.0)
+    .decorations(false)
+    .transparent(false)
+    .always_on_top(true)
+    .visible(false)
+    .skip_taskbar(true)
+    .resizable(false)
+    .position(-3000.0, -3000.0)
+    .build()
+    .map_err(|e| format!("failed to create context menu window: {:?}", e))?;
+
+    let win_clone = menu_win.clone();
+    menu_win.on_window_event(move |event| {
+        if let tauri::WindowEvent::Focused(false) = event {
+            let _ = win_clone.hide();
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn show_context_menu<R: Runtime>(
+    window: Window<R>,
+    screen_x: f64,
+    screen_y: f64,
+    task: ContextMenuTask,
+) {
+    let app = window.app_handle();
+    let manager = app.state::<Arc<ContextMenuManager>>();
+    manager.set_current_task(task.clone());
+
+    let menu_width = MENU_WIDTH;
+    let menu_height = calc_main_menu_height(task.status);
+
+    let (final_x, final_y) = match calculate_menu_position(&window, screen_x, screen_y, menu_width, menu_height) {
+        Some(pos) => pos,
+        None => return,
+    };
+
+    let scale = match window.current_monitor() {
+        Ok(Some(m)) => m.scale_factor(),
+        _ => return,
+    };
+    let phys_width = (menu_width * scale) as u32;
+    let phys_height = (menu_height * scale) as u32;
+
     if let Some(menu_win) = app.get_webview_window("context_menu") {
-        let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width as u32, phys_height as u32));
-        let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x as i32, final_y as i32));
+        let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
+        let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
         let _ = menu_win.show();
         let _ = menu_win.set_focus();
@@ -265,64 +287,21 @@ pub fn show_trash_context_menu<R: Runtime>(
     let menu_width = MENU_WIDTH;
     let menu_height = calc_trash_menu_height();
 
-    let monitor = match window.current_monitor() {
-        Ok(Some(m)) => m,
-        Ok(None) => return,
-        Err(_) => return,
+    let (final_x, final_y) = match calculate_menu_position(&window, screen_x, screen_y, menu_width, menu_height) {
+        Some(pos) => pos,
+        None => return,
     };
 
-    let scale = monitor.scale_factor();
-    let work_area = monitor.work_area();
-    let wa_pos = work_area.position;
-    let wa_size = work_area.size;
-
-    let primary_scale = window.primary_monitor()
-        .ok()
-        .flatten()
-        .map(|m| m.scale_factor())
-        .unwrap_or(1.0);
-
-    let css_offset_x = wa_pos.x as f64 / primary_scale;
-    let css_offset_y = wa_pos.y as f64 / primary_scale;
-
-    let phys_x = wa_pos.x as f64 + (screen_x - css_offset_x) * scale;
-    let phys_y = wa_pos.y as f64 + (screen_y - css_offset_y) * scale;
-    let phys_width = menu_width * scale;
-    let phys_height = menu_height * scale;
-
-    let window_pos = window.outer_position();
-    let window_center_x = match window_pos {
-        Ok(pos) => pos.x as f64 + 150.0 * scale,
-        Err(_) => phys_x,
+    let scale = match window.current_monitor() {
+        Ok(Some(m)) => m.scale_factor(),
+        _ => return,
     };
-    let screen_center_x = wa_pos.x as f64 + wa_size.width as f64 / 2.0;
-
-    let mut final_x: f64;
-    let mut final_y = phys_y;
-
-    if window_center_x < screen_center_x {
-        final_x = phys_x - phys_width;
-    } else {
-        final_x = phys_x;
-    }
-
-    if final_x + phys_width > (wa_pos.x + wa_size.width as i32) as f64 {
-        final_x = (wa_pos.x + wa_size.width as i32) as f64 - phys_width;
-    }
-    if final_x < wa_pos.x as f64 {
-        final_x = wa_pos.x as f64;
-    }
-
-    if phys_y + phys_height > (wa_pos.y + wa_size.height as i32) as f64 {
-        final_y = (wa_pos.y + wa_size.height as i32) as f64 - phys_height;
-    }
-    if final_y < wa_pos.y as f64 {
-        final_y = wa_pos.y as f64;
-    }
+    let phys_width = (menu_width * scale) as u32;
+    let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("trash_context_menu") {
-        let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width as u32, phys_height as u32));
-        let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x as i32, final_y as i32));
+        let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
+        let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
         let _ = menu_win.show();
         let _ = menu_win.set_focus();

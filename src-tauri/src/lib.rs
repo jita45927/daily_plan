@@ -4,6 +4,8 @@ mod window;
 mod task_timer;
 mod context_menu;
 mod snap_line;
+mod clean_computer;
+mod recycle_bin;
 
 use std::sync::Arc;
 use base64::Engine;
@@ -31,6 +33,8 @@ use context_menu::{
     get_trash_context_menu_task, trash_context_menu_action,
 };
 use snap_line::{SnapLineManager, setup_snap_line_window, expand_from_snap_line};
+use clean_computer::{CleanComputerManager, clean_computer_cmd, get_clean_computer_status};
+use recycle_bin::empty_recycle_bin_cmd;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -191,61 +195,6 @@ fn check_conflicts_cmd() -> Result<Vec<ConflictFile>, String> {
 }
 
 #[tauri::command]
-fn run_organize_desktop() -> Result<bool, String> {
-    let desktop_path = get_desktop_path()?;
-    
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let parent_cwd = cwd.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-    
-    let possible_paths = [
-        cwd.join("text_Clean_up the_desktop").join("organize_desktop.py"),
-        parent_cwd.join("text_Clean_up the_desktop").join("organize_desktop.py"),
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.join("organize_desktop.py"))).unwrap_or_default(),
-        std::env::current_exe().ok().and_then(|p| p.parent().and_then(|p| p.parent()).map(|p| p.join("organize_desktop.py"))).unwrap_or_default(),
-        std::env::current_exe().ok().and_then(|p| p.parent().and_then(|p| p.parent()).and_then(|p| p.parent()).map(|p| p.join("organize_desktop.py"))).unwrap_or_default(),
-    ];
-    
-    let mut script_path = None;
-    for path in &possible_paths {
-        if path.exists() {
-            script_path = Some(path.clone());
-            break;
-        }
-    }
-    
-    let script_path = match script_path {
-        Some(p) => p,
-        None => {
-            let paths_str: Vec<String> = possible_paths.iter().map(|p| p.display().to_string()).collect();
-            return Err(format!("整理脚本不存在！\n搜索路径:\n{}", paths_str.join("\n")));
-        }
-    };
-    
-    println!("整理脚本路径: {}", script_path.display());
-    println!("桌面路径: {}", desktop_path);
-    
-    let result = std::process::Command::new("python")
-        .arg(&script_path)
-        .arg(&desktop_path)
-        .spawn();
-    
-    match result {
-        Ok(_) => {
-            println!("整理脚本启动成功");
-            Ok(true)
-        }
-        Err(e) => {
-            println!("启动整理脚本失败: {}", e);
-            let python_path = match std::env::var("PYTHONPATH") {
-                Ok(p) => p,
-                Err(_) => "未设置".to_string()
-            };
-            Err(format!("启动整理脚本失败: {}\n可能需要安装Python并配置环境变量\nPYTHONPATH: {}", e, python_path))
-        }
-    }
-}
-
-#[tauri::command]
 fn set_window_size(window: tauri::Window, width: f64, height: f64) {
     use winapi::um::winuser::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOCOPYBITS};
 
@@ -323,6 +272,7 @@ pub fn run() {
         .manage(Arc::new(ContextMenuManager::new()))
         .manage(Arc::new(SnapLineManager::new()))
         .manage(Arc::new(DesktopAnalyzeManager::new()))
+        .manage(Arc::new(CleanComputerManager::new()))
         .invoke_handler(tauri::generate_handler![
             greet,
             exit_app,
@@ -356,7 +306,6 @@ pub fn run() {
             get_desktop_path_cmd,
             organize_desktop_cmd,
             check_conflicts_cmd,
-            run_organize_desktop,
             analyze_desktop_cmd,
             show_analyze_window,
             get_desktop_analysis,
@@ -378,6 +327,9 @@ pub fn run() {
             expand_from_snap_line,
             find_duplicate_files_cmd,
             clean_duplicate_files_cmd,
+            clean_computer_cmd,
+            get_clean_computer_status,
+            empty_recycle_bin_cmd,
         ])
         .setup(|app| {
             let manager = app.state::<Arc<WindowManager>>();

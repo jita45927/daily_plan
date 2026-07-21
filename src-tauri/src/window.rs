@@ -724,7 +724,12 @@ impl WindowManager {
                     config.x = db_config.x;
                     config.y = db_config.y;
                 }
-                config.height = 600.0;
+                // 从数据库读取高度，限制在合理范围内
+                config.height = if db_config.height >= 300.0 && db_config.height <= 9999.0 {
+                    db_config.height
+                } else {
+                    600.0
+                };
                 config.is_locked = db_config.locked;
             }
             Err(_) => {}
@@ -732,12 +737,12 @@ impl WindowManager {
     }
 
     pub fn apply_config_to_window<R: Runtime>(&self, window: &Window<R>) {
-        let (x, y, width, always_on_top) = {
+        let (x, y, width, height, always_on_top) = {
             let config = self.config.lock().unwrap();
-            (config.x, config.y, config.width, config.always_on_top)
+            (config.x, config.y, config.width, config.height, config.always_on_top)
         };
         window.set_position(tauri::LogicalPosition::new(x, y)).ok();
-        window.set_size(tauri::LogicalSize::new(width, 600.0)).ok();
+        window.set_size(tauri::LogicalSize::new(width, height)).ok();
         window.set_always_on_top(always_on_top).ok();
     }
 }
