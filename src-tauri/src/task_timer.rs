@@ -1,11 +1,14 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::async_runtime::spawn;
 use tokio::time::interval;
 use tauri::Emitter;
+use winapi::shared::minwindef::{BOOL, UINT};
+use libloading::{Library, Symbol};
 
 pub struct TimerManager {
     timers: Arc<Mutex<Vec<Timer>>>,
+    is_alarm_playing: Arc<AtomicBool>,
 }
 
 struct Timer {
@@ -19,6 +22,7 @@ impl TimerManager {
     pub fn new() -> Self {
         TimerManager {
             timers: Arc::new(Mutex::new(Vec::new())),
+            is_alarm_playing: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -293,4 +297,91 @@ pub fn calibrate_timer_cmd(
     task_id: i64,
 ) -> Result<Option<TimerStatus>, String> {
     Ok(timer_manager.calibrate_timer(task_id))
+}
+
+use std::sync::OnceLock;
+
+static WINMM_LIB: OnceLock<Library> = OnceLock::new();
+
+fn get_winmm_lib() -> Option<&'static Library> {
+    WINMM_LIB.get_or_init(|| unsafe { Library::new("winmm.dll").unwrap_or_else(|_| {
+        panic!("Failed to load winmm.dll")
+    })});
+    WINMM_LIB.get()
+}
+
+type PlaySoundWFunc = unsafe extern "system" fn(
+    psz_sound: *const u16,
+    hmod: *const std::ffi::c_void,
+    fdw_sound: UINT,
+) -> BOOL;
+
+fn play_sound(sound_path: Option<&str>, flags: UINT) -> bool {
+    let lib = match get_winmm_lib() {
+        Some(l) => l,
+        None => return false,
+    };
+    
+    unsafe {
+        let play_sound: Symbol<PlaySoundWFunc> = match lib.get(b"PlaySoundW\0") {
+            Ok(f) => f,
+            Err(_) => return false,
+        };
+        
+        match sound_path {
+            Some(path) => {
+                let wide_path: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
+                play_sound(wide_path.as_ptr(), std::ptr::null(), flags) != 0
+            }
+            None => {
+                play_sound(std::ptr::null(), std::ptr::null(), flags) != 0
+            }
+        }
+    }
+}
+
+#[tauri::command]
+pub fn play_alarm_cmd(
+    timer_manager: tauri::State<'_, Arc<TimerManager>>,
+) -> Result<String, String> {
+    let is_alarm_playing = timer_manager.is_alarm_playing.clone();
+    
+    if is_alarm_playing.load(Ordering::SeqCst) {
+        return Ok("闹钟已在播放中".to_string());
+    }
+
+    is_alarm_playing.store(true, Ordering::SeqCst);
+
+    let alarm_sound = "C:\\Windows\\Media\\Alarm01.wav";
+    let snd_async: UINT = 0x0001;
+    let snd_loop: UINT = 0x0008;
+    let snd_nostop: UINT = 0x0010;
+
+    let success = play_sound(Some(alarm_sound), snd_async | snd_loop | snd_nostop);
+    
+    if !success {
+        is_alarm_playing.store(false, Ordering::SeqCst);
+        return Ok("播放闹钟失败".to_string());
+    }
+
+    spawn(async move {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        if is_alarm_playing.load(Ordering::SeqCst) {
+            is_alarm_playing.store(false, Ordering::SeqCst);
+            let _ = play_sound(None, 0);
+        }
+    });
+
+    Ok("闹钟已启动，将播放15秒".to_string())
+}
+
+#[tauri::command]
+pub fn stop_alarm_cmd(
+    timer_manager: tauri::State<'_, Arc<TimerManager>>,
+) -> Result<String, String> {
+    timer_manager.is_alarm_playing.store(false, Ordering::SeqCst);
+    
+    let _ = play_sound(None, 0);
+
+    Ok("闹钟已停止".to_string())
 }

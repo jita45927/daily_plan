@@ -124,6 +124,7 @@ export const useTaskStore = defineStore('tasks', () => {
   const expiredTask = ref<ExpiredTask | null>(null)
   const deletedTasks = ref<DeletedTask[]>([])
   const trashWindowVisible = ref(false)
+  const isMuted = ref(true)
 
   const incompleteTasks = computed(() => tasks.value.filter(t => !t.status).sort((a, b) => a.orderIndex - b.orderIndex))
   const completedTasks = computed(() => tasks.value.filter(t => t.status).sort((a, b) => a.orderIndex - b.orderIndex))
@@ -660,7 +661,15 @@ export const useTaskStore = defineStore('tasks', () => {
         lastTimerValue: task.timerValue
       }
       openPopup('countdownAlert')
+
+      if (!isMuted.value) {
+        await invoke('play_alarm_cmd').catch(() => {})
+      }
     }
+  }
+
+  const toggleMute = () => {
+    isMuted.value = !isMuted.value
   }
 
   const resetExpiredTask = () => {
@@ -829,6 +838,7 @@ export const useTaskStore = defineStore('tasks', () => {
     expiredTask,
     deletedTasks,
     trashWindowVisible,
+    isMuted,
     incompleteTasks,
     completedTasks,
     loadTasks,
@@ -883,6 +893,7 @@ export const useTaskStore = defineStore('tasks', () => {
     handleCleanComputerProgress,
     handleCleanComputerDone,
     hideCleanComputerNotice,
-    formatBytes
+    formatBytes,
+    toggleMute
   }
 })

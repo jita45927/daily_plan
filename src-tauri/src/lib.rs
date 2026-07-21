@@ -30,7 +30,7 @@ use window::{
 };
 use task_timer::{
     calibrate_timer_cmd, get_timer_status_cmd, start_countdown_cmd, start_scheduled_timer_cmd,
-    stop_timer_cmd, TimerManager,
+    stop_timer_cmd, play_alarm_cmd, stop_alarm_cmd, TimerManager,
 };
 use context_menu::{
     close_context_menu, context_menu_action, get_context_menu_task, setup_context_menu_window,
@@ -322,6 +322,8 @@ pub fn run() {
             start_scheduled_timer_cmd,
             stop_timer_cmd,
             get_timer_status_cmd,
+            play_alarm_cmd,
+            stop_alarm_cmd,
             calibrate_timer_cmd,
             show_context_menu,
             close_context_menu,

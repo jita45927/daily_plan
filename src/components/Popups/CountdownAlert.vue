@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useTaskStore } from '../../stores/taskStore'
+import { invoke } from '@tauri-apps/api/core'
 
 const taskStore = useTaskStore()
 
@@ -26,6 +27,10 @@ const handleReStart = () => {
 
 const handleCancel = () => {
   taskStore.resetExpiredTask()
+}
+
+const handleStopAlarm = () => {
+  invoke('stop_alarm_cmd').catch(() => {})
 }
 </script>
 
@@ -63,6 +68,14 @@ const handleCancel = () => {
             >
               <span>🔄</span>
               <span>重新计时</span>
+            </button>
+            
+            <button
+              @click="handleStopAlarm"
+              class="w-full py-2.5 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors flex items-center justify-center gap-2"
+            >
+              <span>🔇</span>
+              <span>临时静音</span>
             </button>
             
             <button
