@@ -404,24 +404,111 @@ pub fn run() {
             window.show().ok();
 
             let app_handle = app.handle().clone();
-            let app_handle_clone = app_handle.clone();
             
             std::thread::spawn(move || {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 
-                let mut welcome_html_path = cwd.join("public").join("welcome.html");
-                if !welcome_html_path.exists() {
-                    welcome_html_path = cwd.parent().unwrap_or(&cwd).join("public").join("welcome.html");
+                let mut image_path = cwd.join("public").join("welcome.jpg");
+                if !image_path.exists() {
+                    image_path = cwd.parent().unwrap_or(&cwd).join("public").join("welcome.jpg");
                 }
-                if !welcome_html_path.exists() {
-                    welcome_html_path = cwd.join("dist").join("welcome.html");
+                if !image_path.exists() {
+                    image_path = cwd.join("dist").join("welcome.jpg");
                 }
-                if !welcome_html_path.exists() {
-                    welcome_html_path = cwd.parent().unwrap_or(&cwd).join("dist").join("welcome.html");
+                if !image_path.exists() {
+                    image_path = cwd.parent().unwrap_or(&cwd).join("dist").join("welcome.jpg");
                 }
                 
-                let file_url = format!("file:///{}", welcome_html_path.to_string_lossy().replace('\\', "/"));
-                let welcome_window = match tauri::WebviewWindowBuilder::new(
+                let base64_image = match std::fs::read(&image_path) {
+                    Ok(data) => base64::engine::general_purpose::STANDARD.encode(&data),
+                    Err(_e) => {
+                        let _ = setup_context_menu_window(&app_handle);
+                        let _ = setup_trash_context_menu_window(&app_handle);
+                        let _ = setup_snap_line_window(&app_handle);
+                        let _ = setup_desktop_analyze_window(&app_handle);
+                        let _ = setup_downloads_analyze_window(&app_handle);
+                        return;
+                    }
+                };
+                
+                let html_content = format!(
+                    r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>欢迎</title>
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; }}
+.welcome-container {{
+  width: 100%;
+  height: 100%;
+  background-image: url(data:image/jpeg;base64,{});
+  background-size: cover;
+  background-position: center;
+  transition: opacity 0.8s ease-out;
+  position: relative;
+}}
+.welcome-container.fade-out {{ opacity: 0; }}
+.progress-section {{
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+}}
+.progress-bar-container {{
+  width: 100%;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}}
+.progress-bar {{
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s ease;
+}}
+</style>
+</head>
+<body>
+<div class="welcome-container" id="welcomeContainer">
+  <div class="progress-section">
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+</div>
+<script>
+const progressBar = document.getElementById('progressBar');
+const welcomeContainer = document.getElementById('welcomeContainer');
+window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
+function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
+function fadeOut() {{
+  welcomeContainer.classList.add('fade-out');
+  setTimeout(() => {{ if (window.close) window.close(); }}, 800);
+}}
+if (window.__TAURI_IPC__) {{
+  try {{
+    window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
+    window.__TAURI_IPC__.listen('app_ready', () => {{ updateProgress(100); setTimeout(fadeOut, 500); }});
+  }} catch (e) {{ setTimeout(fadeOut, 3000); }}
+}} else {{ setTimeout(fadeOut, 3000); }}
+updateProgress(10);
+</script>
+</body>
+</html>"#,
+                    base64_image
+                );
+                
+                let temp_path = dirs::cache_dir().unwrap_or_default().join("daily_plan_welcome.html");
+                let _ = std::fs::write(&temp_path, &html_content);
+                
+                let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
+                let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
                     tauri::WebviewUrl::External(file_url.parse().unwrap())
@@ -432,66 +519,36 @@ pub fn run() {
                 .decorations(false)
                 .always_on_top(true)
                 .transparent(false)
-                .background_color(tauri::window::Color(37, 99, 235, 255))
+                .background_color(tauri::window::Color(0, 0, 0, 0))
                 .visible(true)
-                .build() {
-                    Ok(w) => w,
-                    Err(_e) => {
-                        let _ = setup_context_menu_window(&app_handle);
-                        let _ = setup_trash_context_menu_window(&app_handle);
-                        let _ = setup_snap_line_window(&app_handle);
-                        let _ = setup_desktop_analyze_window(&app_handle);
-                        let _ = setup_downloads_analyze_window(&app_handle);
-                        return;
-                    }
-                };
+                .build();
 
                 std::thread::sleep(std::time::Duration::from_millis(200));
 
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
-                    "percent": 20,
-                    "text": "初始化子窗口..."
-                }));
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 20 }));
 
                 let _ = setup_context_menu_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
-                    "percent": 35,
-                    "text": "初始化右键菜单..."
-                }));
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 35 }));
 
                 let _ = setup_trash_context_menu_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
-                    "percent": 50,
-                    "text": "初始化回收站菜单..."
-                }));
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 50 }));
 
                 let _ = setup_snap_line_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
-                    "percent": 65,
-                    "text": "初始化贴边线..."
-                }));
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 65 }));
 
                 let _ = setup_desktop_analyze_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
-                    "percent": 80,
-                    "text": "初始化分析窗口..."
-                }));
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 80 }));
 
                 let _ = setup_downloads_analyze_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
-                    "percent": 90,
-                    "text": "等待主窗口加载..."
-                }));
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 90 }));
 
-                let app_handle2 = app_handle.clone();
-                
                 let mut wait_count = 0;
                 while !APP_READY.load(Ordering::SeqCst) && wait_count < 300 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     wait_count += 1;
                 }
                 
-                if let Some(w) = app_handle2.get_webview_window("welcome") {
+                if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.close();
                 }
             });

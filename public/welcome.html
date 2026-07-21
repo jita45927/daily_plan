@@ -6,114 +6,58 @@
 <title>欢迎</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #2563eb; }
+html, body { width: 100%; height: 100%; overflow: hidden; }
 .welcome-container {
   width: 100%;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  background-size: cover;
+  background-position: center;
   transition: opacity 0.8s ease-out;
+  position: relative;
 }
 .welcome-container.fade-out {
   opacity: 0;
 }
-.logo-section {
-  margin-bottom: 30px;
-}
-.logo-circle {
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  backdrop-filter: blur(10px);
-  animation: pulse 2s ease-in-out infinite;
-}
-.logo-circle svg {
-  width: 60px;
-  height: 60px;
-  fill: white;
-}
-@keyframes pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.05); opacity: 0.9; }
-}
-.title-section {
-  text-align: center;
-  margin-bottom: 40px;
-}
-.title-section h1 {
-  font-size: 36px;
-  font-weight: 700;
-  color: white;
-  margin-bottom: 8px;
-  letter-spacing: 2px;
-}
-.title-section p {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.8);
-}
 .progress-section {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
   width: 300px;
-  text-align: center;
 }
 .progress-bar-container {
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
   overflow: hidden;
 }
 .progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #fbbf24, #f59e0b);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
   width: 0%;
   transition: width 0.3s ease;
-}
-.progress-text {
-  margin-top: 12px;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.9);
 }
 </style>
 </head>
 <body>
 <div class="welcome-container" id="welcomeContainer">
-  <div class="logo-section">
-    <div class="logo-circle">
-      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
-      </svg>
-    </div>
-  </div>
-  <div class="title-section">
-    <h1>每日计划</h1>
-    <p>高效管理您的每一天</p>
-  </div>
   <div class="progress-section">
     <div class="progress-bar-container">
       <div class="progress-bar" id="progressBar"></div>
     </div>
-    <div class="progress-text" id="progressText">正在加载...</div>
   </div>
 </div>
 
 <script>
 const progressBar = document.getElementById('progressBar');
-const progressText = document.getElementById('progressText');
 const welcomeContainer = document.getElementById('welcomeContainer');
 
 window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
 
-function updateProgress(percent, text) {
+function updateProgress(percent) {
   progressBar.style.width = percent + '%';
-  progressText.textContent = text;
 }
 
 function fadeOut() {
@@ -128,12 +72,12 @@ function fadeOut() {
 if (window.__TAURI_IPC__) {
   try {
     window.__TAURI_IPC__.listen('progress_update', (event) => {
-      const { percent, text } = event.payload;
-      updateProgress(percent, text);
+      const { percent } = event.payload;
+      updateProgress(percent);
     });
     
     window.__TAURI_IPC__.listen('app_ready', () => {
-      updateProgress(100, '加载完成');
+      updateProgress(100);
       setTimeout(fadeOut, 500);
     });
   } catch (e) {
@@ -144,7 +88,7 @@ if (window.__TAURI_IPC__) {
   setTimeout(fadeOut, 3000);
 }
 
-updateProgress(10, '初始化中...');
+updateProgress(10);
 </script>
 </body>
 </html>
