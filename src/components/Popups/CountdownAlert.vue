@@ -7,7 +7,12 @@ const taskStore = useTaskStore()
 
 const expiredTask = computed(() => taskStore.expiredTask)
 
+const stopAlarm = () => {
+  invoke('stop_alarm_cmd').catch(() => {})
+}
+
 const handleMarkCompleted = () => {
+  stopAlarm()
   if (expiredTask.value) {
     taskStore.markCompleted(expiredTask.value.task_id)
     taskStore.resetExpiredTask()
@@ -15,6 +20,7 @@ const handleMarkCompleted = () => {
 }
 
 const handleMarkIncomplete = () => {
+  stopAlarm()
   if (expiredTask.value) {
     taskStore.markIncomplete(expiredTask.value.task_id)
     taskStore.resetExpiredTask()
@@ -22,15 +28,17 @@ const handleMarkIncomplete = () => {
 }
 
 const handleReStart = () => {
+  stopAlarm()
   taskStore.reStartTimer()
 }
 
 const handleCancel = () => {
+  stopAlarm()
   taskStore.resetExpiredTask()
 }
 
 const handleStopAlarm = () => {
-  invoke('stop_alarm_cmd').catch(() => {})
+  stopAlarm()
 }
 </script>
 
