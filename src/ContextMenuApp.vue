@@ -221,7 +221,7 @@ onUnmounted(() => {
   <div :style="menuStyle">
     <div :style="menuContainerStyle">
       <button
-        v-if="task && !task.status"
+        v-if="task"
         @click="handleMarkCompleted"
         style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
         onmouseover="this.style.backgroundColor='#f0fdf4'"
@@ -230,7 +230,7 @@ onUnmounted(() => {
         标记已完成
       </button>
       <button
-        v-if="task && task.status"
+        v-if="task"
         @click="handleMarkIncomplete"
         style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
         onmouseover="this.style.backgroundColor='#fef2f2'"

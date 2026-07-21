@@ -166,7 +166,7 @@ onUnmounted(() => {
     <div class="flex items-start gap-2">
       <div class="flex-shrink-0 w-5 h-5 flex items-center justify-center pt-0.5">
         <div
-          v-if="!task.status && !task.bold"
+          v-if="!task.status && task.color !== '#FF0000'"
           class="w-2.5 h-2.5 rounded-full bg-gray-600/60"
         ></div>
         <span
@@ -174,7 +174,7 @@ onUnmounted(() => {
           class="text-green-600 font-bold text-sm"
         >✓</span>
         <span
-          v-else-if="!task.status && task.bold"
+          v-else-if="!task.status && task.color === '#FF0000'"
           class="text-red-500 font-bold text-sm"
         >✕</span>
       </div>

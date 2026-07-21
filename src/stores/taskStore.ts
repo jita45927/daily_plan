@@ -269,8 +269,8 @@ export const useTaskStore = defineStore('tasks', () => {
           id: task.id,
           text: task.text,
           status: false,
-          color: task.color,
-          bold: task.bold,
+          color: '#FF0000',
+          bold: true,
           timerType: task.timerType,
           timerValue: task.timerValue,
           timerRemaining: task.timerRemaining
@@ -379,10 +379,12 @@ export const useTaskStore = defineStore('tasks', () => {
 
   const openMainMenu = (x: number, y: number) => {
     mainMenu.value = { show: true, x, y }
+    invoke('set_main_menu_open', { open: true }).catch(() => {})
   }
 
   const closeMainMenu = () => {
     mainMenu.value = { show: false, x: 0, y: 0 }
+    invoke('set_main_menu_open', { open: false }).catch(() => {})
   }
 
   const updateTaskText = async (id: number, text: string) => {

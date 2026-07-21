@@ -68,6 +68,8 @@ pub struct WindowManager {
     mouse_was_in_window: Mutex<bool>,
     /// 收起前的窗口外框位置（用于展开时恢复）
     collapsed_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
+    /// 左键菜单是否打开（打开时禁用收起）
+    is_main_menu_open: Mutex<bool>,
 }
 
 impl WindowManager {
@@ -82,6 +84,7 @@ impl WindowManager {
             is_collapsed: Mutex::new(false),
             mouse_was_in_window: Mutex::new(false),
             collapsed_position: Mutex::new(None),
+            is_main_menu_open: Mutex::new(false),
         }
     }
 
@@ -202,6 +205,11 @@ impl WindowManager {
                     if trash_menu_win.is_visible().unwrap_or(false) {
                         continue;
                     }
+                }
+
+                // 如果左键菜单正在打开，则不收起主窗口
+                if *manager.is_main_menu_open.lock().unwrap() {
+                    continue;
                 }
 
                 // 获取全局鼠标位置
@@ -802,6 +810,19 @@ pub fn stop_dragging(window: tauri::Window) {
 pub fn collapse_to_snap_line(window: tauri::Window) {
     let manager = window.app_handle().state::<Arc<WindowManager>>();
     manager.collapse_window(&window);
+}
+
+#[tauri::command]
+pub fn set_main_menu_open(window: tauri::Window, open: bool) {
+    let manager = window.app_handle().state::<Arc<WindowManager>>();
+    *manager.is_main_menu_open.lock().unwrap() = open;
+}
+
+#[tauri::command]
+pub fn is_main_menu_open(window: tauri::Window) -> bool {
+    let manager = window.app_handle().state::<Arc<WindowManager>>();
+    let x = *manager.is_main_menu_open.lock().unwrap();
+    x
 }
 
 /// 用 Win32 GetCursorPos 获取全局鼠标物理坐标

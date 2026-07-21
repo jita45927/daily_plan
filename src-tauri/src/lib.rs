@@ -20,7 +20,8 @@ use desktop_sort::{
 };
 use window::{
     get_window_config, save_window_config, set_always_on_top,
-    start_dragging, stop_dragging, toggle_window_lock, collapse_to_snap_line, WindowManager,
+    start_dragging, stop_dragging, toggle_window_lock, collapse_to_snap_line,
+    set_main_menu_open, is_main_menu_open, WindowManager,
 };
 use task_timer::{
     calibrate_timer_cmd, get_timer_status_cmd, start_countdown_cmd, start_scheduled_timer_cmd,
@@ -325,6 +326,8 @@ pub fn run() {
             trash_context_menu_action,
             collapse_to_snap_line,
             expand_from_snap_line,
+            set_main_menu_open,
+            is_main_menu_open,
             find_duplicate_files_cmd,
             clean_duplicate_files_cmd,
             clean_computer_cmd,
