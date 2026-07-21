@@ -222,8 +222,6 @@ const handleTrashContextMenuCommand = async (event: { payload: TrashContextMenuC
 
 onMounted(async () => {
   await taskStore.loadTasks()
-  
-  invoke('on_app_ready').catch(() => {})
 
   await listen('timer_update', taskStore.handleTimerUpdate)
   await listen('timer_expired', taskStore.handleTimerExpired)

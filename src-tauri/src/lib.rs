@@ -457,6 +457,12 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
   left: 50%;
   transform: translateX(-50%);
   width: 300px;
+  text-align: center;
+}}
+.progress-text {{
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.9);
+  margin-bottom: 8px;
 }}
 .progress-bar-container {{
   width: 100%;
@@ -477,6 +483,7 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 <body>
 <div class="welcome-container" id="welcomeContainer">
   <div class="progress-section">
+    <div class="progress-text">程序加载中......</div>
     <div class="progress-bar-container">
       <div class="progress-bar" id="progressBar"></div>
     </div>
@@ -523,6 +530,8 @@ updateProgress(10);
                 .visible(true)
                 .build();
 
+                let start_time = std::time::Instant::now();
+
                 std::thread::sleep(std::time::Duration::from_millis(200));
 
                 let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 20 }));
@@ -547,6 +556,15 @@ updateProgress(10);
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     wait_count += 1;
                 }
+
+                let elapsed = start_time.elapsed();
+                let min_duration = std::time::Duration::from_secs(3);
+                if elapsed < min_duration {
+                    std::thread::sleep(min_duration - elapsed);
+                }
+
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 100 }));
+                std::thread::sleep(std::time::Duration::from_millis(500));
                 
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.close();
