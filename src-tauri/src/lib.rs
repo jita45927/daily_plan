@@ -10,7 +10,7 @@ mod recycle_bin;
 use std::sync::Arc;
 use base64::Engine;
 
-use tauri::Manager;
+use tauri::{Manager, Emitter};
 use tauri_plugin_dialog;
 use db::{delete_all_tasks, delete_completed_tasks, delete_task, get_all_tasks, get_db_window_config, get_deleted_tasks, insert_task, move_task_to_trash, move_completed_to_trash, move_all_to_trash, permanently_delete_task, clear_trash_by_period, reinitialize_db, reorder_tasks, restore_task, save_db_window_config, update_task};
 use desktop_sort::{
@@ -42,6 +42,17 @@ use context_menu::{
 use snap_line::{SnapLineManager, setup_snap_line_window, expand_from_snap_line};
 use clean_computer::{CleanComputerManager, clean_computer_cmd, get_clean_computer_status};
 use recycle_bin::empty_recycle_bin_cmd;
+
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static APP_READY: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+fn on_app_ready(app_handle: tauri::AppHandle) -> Result<String, String> {
+    APP_READY.store(true, Ordering::SeqCst);
+    let _ = app_handle.emit_to("welcome", "app_ready", serde_json::json!({}));
+    Ok("主窗口加载完成".to_string())
+}
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -327,6 +338,7 @@ pub fn run() {
             play_alarm_cmd,
             stop_alarm_cmd,
             calibrate_timer_cmd,
+            on_app_ready,
             show_context_menu,
             close_context_menu,
             get_context_menu_task,
@@ -388,62 +400,28 @@ pub fn run() {
             // 初始化时自动贴边对齐
             manager.init_snap(&window);
 
-            // 预先初始化所有子窗口，避免用户操作时才创建导致延迟
-            let app_handle = app.handle().clone();
-            let _ = setup_context_menu_window(&app_handle);
-            let _ = setup_trash_context_menu_window(&app_handle);
-            let _ = setup_snap_line_window(&app_handle);
-            let _ = setup_desktop_analyze_window(&app_handle);
-            let _ = setup_downloads_analyze_window(&app_handle);
-
             // 主窗口先显示
             window.show().ok();
 
+            let app_handle = app.handle().clone();
+            let app_handle_clone = app_handle.clone();
+            
             std::thread::spawn(move || {
                 let cwd = std::env::current_dir().unwrap_or_default();
                 
-                let mut image_path = cwd.join("public").join("welcome.jpg");
-                if !image_path.exists() {
-                    image_path = cwd.parent().unwrap_or(&cwd).join("public").join("welcome.jpg");
+                let mut welcome_html_path = cwd.join("public").join("welcome.html");
+                if !welcome_html_path.exists() {
+                    welcome_html_path = cwd.parent().unwrap_or(&cwd).join("public").join("welcome.html");
                 }
-                if !image_path.exists() {
-                    image_path = cwd.join("dist").join("welcome.jpg");
+                if !welcome_html_path.exists() {
+                    welcome_html_path = cwd.join("dist").join("welcome.html");
                 }
-                if !image_path.exists() {
-                    image_path = cwd.parent().unwrap_or(&cwd).join("dist").join("welcome.jpg");
+                if !welcome_html_path.exists() {
+                    welcome_html_path = cwd.parent().unwrap_or(&cwd).join("dist").join("welcome.html");
                 }
                 
-                let base64_image = match std::fs::read(&image_path) {
-                    Ok(data) => base64::engine::general_purpose::STANDARD.encode(&data),
-                    Err(_e) => return,
-                };
-                
-                let html_content = format!(
-                    r#"<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>欢迎</title>
-<style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; background: transparent; }}
-img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
-</style>
-</head>
-<body>
-<img src="data:image/jpeg;base64,{}" alt="Welcome" />
-<script>setTimeout(function() {{ window.close(); }}, 4000);</script>
-</body>
-</html>"#,
-                    base64_image
-                );
-                
-                let temp_path = dirs::cache_dir().unwrap_or_default().join("daily_plan_welcome.html");
-                let _ = std::fs::write(&temp_path, &html_content);
-                
-                let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
-                let _ = tauri::WebviewWindowBuilder::new(
+                let file_url = format!("file:///{}", welcome_html_path.to_string_lossy().replace('\\', "/"));
+                let welcome_window = match tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
                     tauri::WebviewUrl::External(file_url.parse().unwrap())
@@ -453,10 +431,69 @@ img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
                 .center()
                 .decorations(false)
                 .always_on_top(true)
-                .transparent(true)
-                .background_color(tauri::window::Color(0, 0, 0, 0))
+                .transparent(false)
+                .background_color(tauri::window::Color(37, 99, 235, 255))
                 .visible(true)
-                .build();
+                .build() {
+                    Ok(w) => w,
+                    Err(_e) => {
+                        let _ = setup_context_menu_window(&app_handle);
+                        let _ = setup_trash_context_menu_window(&app_handle);
+                        let _ = setup_snap_line_window(&app_handle);
+                        let _ = setup_desktop_analyze_window(&app_handle);
+                        let _ = setup_downloads_analyze_window(&app_handle);
+                        return;
+                    }
+                };
+
+                std::thread::sleep(std::time::Duration::from_millis(200));
+
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
+                    "percent": 20,
+                    "text": "初始化子窗口..."
+                }));
+
+                let _ = setup_context_menu_window(&app_handle);
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
+                    "percent": 35,
+                    "text": "初始化右键菜单..."
+                }));
+
+                let _ = setup_trash_context_menu_window(&app_handle);
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
+                    "percent": 50,
+                    "text": "初始化回收站菜单..."
+                }));
+
+                let _ = setup_snap_line_window(&app_handle);
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
+                    "percent": 65,
+                    "text": "初始化贴边线..."
+                }));
+
+                let _ = setup_desktop_analyze_window(&app_handle);
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
+                    "percent": 80,
+                    "text": "初始化分析窗口..."
+                }));
+
+                let _ = setup_downloads_analyze_window(&app_handle);
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({
+                    "percent": 90,
+                    "text": "等待主窗口加载..."
+                }));
+
+                let app_handle2 = app_handle.clone();
+                
+                let mut wait_count = 0;
+                while !APP_READY.load(Ordering::SeqCst) && wait_count < 300 {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                    wait_count += 1;
+                }
+                
+                if let Some(w) = app_handle2.get_webview_window("welcome") {
+                    let _ = w.close();
+                }
             });
 
             Ok(())
