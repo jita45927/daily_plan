@@ -388,14 +388,18 @@ pub fn run() {
             // 初始化时自动贴边对齐
             manager.init_snap(&window);
 
+            // 预先初始化所有子窗口，避免用户操作时才创建导致延迟
+            let app_handle = app.handle().clone();
+            let _ = setup_context_menu_window(&app_handle);
+            let _ = setup_trash_context_menu_window(&app_handle);
+            let _ = setup_snap_line_window(&app_handle);
+            let _ = setup_desktop_analyze_window(&app_handle);
+            let _ = setup_downloads_analyze_window(&app_handle);
+
             // 主窗口先显示
             window.show().ok();
 
-            let app_handle = app.handle().clone();
-            
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(1000));
-                
                 let cwd = std::env::current_dir().unwrap_or_default();
                 
                 let mut image_path = cwd.join("public").join("welcome.jpg");
@@ -411,14 +415,7 @@ pub fn run() {
                 
                 let base64_image = match std::fs::read(&image_path) {
                     Ok(data) => base64::engine::general_purpose::STANDARD.encode(&data),
-                    Err(_e) => {
-                        let _ = setup_context_menu_window(&app_handle);
-                        let _ = setup_trash_context_menu_window(&app_handle);
-                        let _ = setup_snap_line_window(&app_handle);
-                        let _ = setup_desktop_analyze_window(&app_handle);
-                        let _ = setup_downloads_analyze_window(&app_handle);
-                        return;
-                    }
+                    Err(_e) => return,
                 };
                 
                 let html_content = format!(
@@ -446,7 +443,7 @@ img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
                 let _ = std::fs::write(&temp_path, &html_content);
                 
                 let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
-                let welcome_window = match tauri::WebviewWindowBuilder::new(
+                let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
                     tauri::WebviewUrl::External(file_url.parse().unwrap())
@@ -459,30 +456,7 @@ img {{ width: 100%; height: 100%; display: block; object-fit: cover; }}
                 .transparent(true)
                 .background_color(tauri::window::Color(0, 0, 0, 0))
                 .visible(true)
-                .build() {
-                    Ok(w) => w,
-                    Err(_e) => {
-                        let _ = setup_context_menu_window(&app_handle);
-                        let _ = setup_trash_context_menu_window(&app_handle);
-                        let _ = setup_snap_line_window(&app_handle);
-                        let _ = setup_desktop_analyze_window(&app_handle);
-                        let _ = setup_downloads_analyze_window(&app_handle);
-                        return;
-                    }
-                };
-
-                let welcome_clone = welcome_window.clone();
-                let app_handle2 = app_handle.clone();
-
-                std::thread::sleep(std::time::Duration::from_millis(4000));
-                let _ = welcome_clone.close();
-
-                std::thread::sleep(std::time::Duration::from_millis(800));
-                let _ = setup_context_menu_window(&app_handle2);
-                let _ = setup_trash_context_menu_window(&app_handle2);
-                let _ = setup_snap_line_window(&app_handle2);
-                let _ = setup_desktop_analyze_window(&app_handle2);
-                let _ = setup_downloads_analyze_window(&app_handle2);
+                .build();
             });
 
             Ok(())

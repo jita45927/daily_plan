@@ -210,22 +210,25 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   const restoreTimers = async () => {
-    for (const task of tasks.value) {
-      if (!task.timerType || task.timerType === '' || task.timerValue <= 0) {
-        continue
-      }
+    const timerTasks = tasks.value.filter(t => t.timerType && t.timerType !== '' && t.timerValue > 0)
+    
+    if (timerTasks.length === 0) {
+      return
+    }
 
-      const currentTime = Math.floor(Date.now() / 1000)
+    const currentTime = Math.floor(Date.now() / 1000)
+    const promises: Promise<void>[] = []
 
-      if (task.timerType === 'countdown') {
-        if (currentTime >= task.timerValue) {
-          task.timerRemaining = 0
-          task.timerType = ''
-          task.timerValue = 0
-          task.status = true
-          task.color = '#000000'
-          task.bold = false
-          await invoke('update_task_cmd', {
+    for (const task of timerTasks) {
+      if (currentTime >= task.timerValue) {
+        task.timerRemaining = 0
+        task.timerType = ''
+        task.timerValue = 0
+        task.status = true
+        task.color = '#000000'
+        task.bold = false
+        promises.push(
+          invoke('update_task_cmd', {
             id: task.id,
             text: task.text,
             status: true,
@@ -234,11 +237,13 @@ export const useTaskStore = defineStore('tasks', () => {
             timerType: '',
             timerValue: 0,
             timerRemaining: 0
-          })
-        } else {
-          const remainingSeconds = task.timerValue - currentTime
-          task.timerRemaining = remainingSeconds
-          await invoke('update_task_cmd', {
+          }).then(() => {})
+        )
+      } else {
+        const remainingSeconds = task.timerValue - currentTime
+        task.timerRemaining = remainingSeconds
+        promises.push(
+          invoke('update_task_cmd', {
             id: task.id,
             text: task.text,
             status: task.status,
@@ -247,50 +252,17 @@ export const useTaskStore = defineStore('tasks', () => {
             timerType: task.timerType,
             timerValue: task.timerValue,
             timerRemaining: remainingSeconds
+          }).then(() => {
+            return invoke('restore_scheduled_timer_cmd', {
+              taskId: task.id,
+              targetTimestamp: task.timerValue
+            }).then(() => {})
           })
-          await invoke('restore_scheduled_timer_cmd', {
-            taskId: task.id,
-            targetTimestamp: task.timerValue
-          })
-        }
-      } else if (task.timerType === 'scheduled') {
-        if (currentTime >= task.timerValue) {
-          task.timerRemaining = 0
-          task.timerType = ''
-          task.timerValue = 0
-          task.status = true
-          task.color = '#000000'
-          task.bold = false
-          await invoke('update_task_cmd', {
-            id: task.id,
-            text: task.text,
-            status: true,
-            color: '#000000',
-            bold: false,
-            timerType: '',
-            timerValue: 0,
-            timerRemaining: 0
-          })
-        } else {
-          const remainingSeconds = task.timerValue - currentTime
-          task.timerRemaining = remainingSeconds
-          await invoke('update_task_cmd', {
-            id: task.id,
-            text: task.text,
-            status: task.status,
-            color: task.color,
-            bold: task.bold,
-            timerType: task.timerType,
-            timerValue: task.timerValue,
-            timerRemaining: remainingSeconds
-          })
-          await invoke('restore_scheduled_timer_cmd', {
-            taskId: task.id,
-            targetTimestamp: task.timerValue
-          })
-        }
+        )
       }
     }
+
+    await Promise.all(promises)
   }
 
   const addTask = async (text: string) => {
