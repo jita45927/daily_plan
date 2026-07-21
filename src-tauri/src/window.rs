@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -54,6 +54,13 @@ enum LineEdge {
     Right,
 }
 
+fn is_window_visible<R: Runtime>(app_handle: &tauri::AppHandle<R>, window_name: &str) -> bool {
+    app_handle
+        .get_webview_window(window_name)
+        .map(|w| w.is_visible().unwrap_or(false))
+        .unwrap_or(false)
+}
+
 pub struct WindowManager {
     config: Mutex<WindowConfigData>,
     drag_threshold: i32,
@@ -70,6 +77,10 @@ pub struct WindowManager {
     collapsed_position: Mutex<Option<tauri::PhysicalPosition<i32>>>,
     /// 左键菜单是否打开（打开时禁用收起）
     is_main_menu_open: Mutex<bool>,
+    /// 窗口是否有焦点（用于检测窗口被最小化的情况）
+    is_focused: Mutex<bool>,
+    /// 上次失去焦点的时间（用于防抖，区分鼠标离开和系统最小化）
+    last_focus_loss_time: Mutex<Option<Instant>>,
 }
 
 impl WindowManager {
@@ -85,6 +96,8 @@ impl WindowManager {
             mouse_was_in_window: Mutex::new(false),
             collapsed_position: Mutex::new(None),
             is_main_menu_open: Mutex::new(false),
+            is_focused: Mutex::new(true),
+            last_focus_loss_time: Mutex::new(None),
         }
     }
 
@@ -152,8 +165,14 @@ impl WindowManager {
                     app.exit(0);
                 }
                 tauri::WindowEvent::Focused(focused) => {
+                    *manager.is_focused.lock().unwrap() = *focused;
                     if *focused {
+                        // 聚焦时清除失焦时间戳
+                        *manager.last_focus_loss_time.lock().unwrap() = None;
                         manager.handle_window_focused(&weak_window);
+                    } else {
+                        // 失焦时记录时间戳（用于防抖）
+                        *manager.last_focus_loss_time.lock().unwrap() = Some(Instant::now());
                     }
                 }
                 tauri::WindowEvent::ScaleFactorChanged { .. } => {
@@ -185,33 +204,30 @@ impl WindowManager {
                 if !should_check {
                     continue;
                 }
-
-                // 如果桌面分析窗口正在显示，则不收起主窗口（避免焦点冲突）
-                if let Some(analyze_win) = window.app_handle().get_webview_window("desktop_analyze") {
-                    if analyze_win.is_visible().unwrap_or(false) {
-                        continue;
-                    }
+                
+                // 获取 app handle
+                let app = window.app_handle();
+                
+                // 系统最小化的窗口不执行收起逻辑
+                if window.is_minimized().unwrap_or(false) {
+                    continue;
+                }
+                
+                // 安全检查：如果处于收起状态，确保状态一致
+                let is_collapsed = *manager.is_collapsed.lock().unwrap();
+                if is_collapsed {
+                    // 使用原子方法确保黄线和主窗口状态严格关联
+                    manager.set_collapsed_state(&app, true);
+                    continue;
                 }
 
-                // 如果文件夹分析窗口正在显示，则不收起主窗口（避免焦点冲突）
-                if let Some(downloads_win) = window.app_handle().get_webview_window("downloads_analyze") {
-                    if downloads_win.is_visible().unwrap_or(false) {
-                        continue;
-                    }
-                }
-
-                // 如果右键菜单窗口正在显示，则不收起主窗口
-                if let Some(menu_win) = window.app_handle().get_webview_window("context_menu") {
-                    if menu_win.is_visible().unwrap_or(false) {
-                        continue;
-                    }
-                }
-
-                // 如果回收站右键菜单窗口正在显示，则不收起主窗口
-                if let Some(trash_menu_win) = window.app_handle().get_webview_window("trash_context_menu") {
-                    if trash_menu_win.is_visible().unwrap_or(false) {
-                        continue;
-                    }
+                // 如果其他窗口正在显示，则不收起主窗口（避免焦点冲突）
+                if is_window_visible(&app, "desktop_analyze") 
+                    || is_window_visible(&app, "downloads_analyze")
+                    || is_window_visible(&app, "context_menu")
+                    || is_window_visible(&app, "trash_context_menu")
+                {
+                    continue;
                 }
 
                 // 如果左键菜单正在打开，则不收起主窗口
@@ -248,8 +264,37 @@ impl WindowManager {
                     // 鼠标不在窗口内，只有之前进入过才触发收起
                     let was_in = *manager.mouse_was_in_window.lock().unwrap();
                     if was_in {
-                        *manager.mouse_was_in_window.lock().unwrap() = false;
-                        manager.collapse_window(&window);
+                        // 检查是否在最近失焦的防抖时间内（300ms）
+                        // 如果是，说明可能是点击任务栏导致的系统最小化，不执行收起
+                        let should_collapse = {
+                            if let Some(loss_time) = *manager.last_focus_loss_time.lock().unwrap() {
+                                loss_time.elapsed() > Duration::from_millis(300)
+                            } else {
+                                true
+                            }
+                        };
+                        
+                        if should_collapse {
+                            *manager.mouse_was_in_window.lock().unwrap() = false;
+                            manager.collapse_window(&window);
+                        }
+                    }
+                }
+                
+                // 周期性不变量检查：确保黄线和主窗口状态严格关联
+                // 防止任何竞态条件导致状态不一致
+                let is_collapsed = *manager.is_collapsed.lock().unwrap();
+                let main_pos = window.outer_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
+                let main_is_offscreen = main_pos.x < -1000 || main_pos.y < -1000;
+                
+                if let Some(snap_win) = app.get_webview_window("snap_line") {
+                    let snap_visible = snap_win.is_visible().unwrap_or(false);
+                    
+                    // 不变量：收起状态 ⟺ 黄线可见且主窗口在屏幕外
+                    if is_collapsed && (!snap_visible || !main_is_offscreen) {
+                        manager.set_collapsed_state(&app, true);
+                    } else if !is_collapsed && snap_visible {
+                        manager.set_collapsed_state(&app, false);
                     }
                 }
             }
@@ -590,20 +635,14 @@ impl WindowManager {
             *self.collapsed_position.lock().unwrap() = Some(pos);
         }
 
-        // 先显示贴边线，再将主窗口移到屏幕外（保留任务栏图标，无最小化动画）
-        let _ = snap_win.show();
-        let _ = main_window.set_position(tauri::PhysicalPosition::new(-3000, -3000));
-
-        *self.is_collapsed.lock().unwrap() = true;
+        // 使用原子方法设置收起状态
+        self.set_collapsed_state(&app, true);
     }
-
-    /// 展开窗口：隐藏贴边线，将主窗口移回原来的位置（无动画）
-    pub fn expand_window<R: Runtime>(&self, app: &tauri::AppHandle<R>) {
-        let is_collapsed = *self.is_collapsed.lock().unwrap();
-        if !is_collapsed {
-            return;
-        }
-
+    
+    /// 原子设置收起状态，确保黄线和主窗口状态严格关联
+    /// collapsed=true: 显示黄线，主窗口移到屏幕外
+    /// collapsed=false: 隐藏黄线，主窗口恢复到正确位置并显示
+    pub fn set_collapsed_state<R: Runtime>(&self, app: &tauri::AppHandle<R>, collapsed: bool) {
         let main_window = match app.get_webview_window("main") {
             Some(w) => w,
             None => return,
@@ -612,21 +651,41 @@ impl WindowManager {
             Some(w) => w,
             None => return,
         };
-
-        // 先隐藏贴边线，再将主窗口移回原来的位置（无动画）
-        let _ = snap_win.hide();
-
-        // 恢复到收起前的位置，如果没有保存则使用配置中的位置
-        let pos = *self.collapsed_position.lock().unwrap();
-        if let Some(p) = pos {
-            let _ = main_window.set_position(p);
+        
+        if collapsed {
+            // 收起：显示黄线，主窗口移到屏幕外
+            let _ = snap_win.show();
+            let _ = main_window.set_position(tauri::PhysicalPosition::new(-3000, -3000));
         } else {
-            // 备用：从配置中读取位置
-            let config = self.config.lock().unwrap();
-            let _ = main_window.set_position(tauri::LogicalPosition::new(config.x, config.y));
+            // 展开：隐藏黄线，主窗口恢复位置并显示
+            let _ = snap_win.hide();
+            let _ = main_window.unminimize();
+            let _ = main_window.show();
+            
+            // 恢复到收起前的位置
+            let pos = *self.collapsed_position.lock().unwrap();
+            if let Some(p) = pos {
+                let _ = main_window.set_position(p);
+            } else {
+                let config = self.config.lock().unwrap();
+                let _ = main_window.set_position(tauri::LogicalPosition::new(config.x, config.y));
+            }
         }
+        
+        *self.is_collapsed.lock().unwrap() = collapsed;
+    }
 
-        *self.is_collapsed.lock().unwrap() = false;
+    /// 展开窗口：隐藏贴边线，将主窗口移回原来的位置（无动画）
+    pub fn expand_window<R: Runtime>(&self, app: &tauri::AppHandle<R>) {
+        let is_collapsed = *self.is_collapsed.lock().unwrap();
+        if !is_collapsed {
+            return;
+        }
+        
+        // 展开后标记鼠标已进入窗口，防止立即触发收起
+        *self.mouse_was_in_window.lock().unwrap() = true;
+        
+        self.set_collapsed_state(app, false);
     }
 
     /// 根据贴边方向定位贴边线窗口
@@ -701,10 +760,29 @@ impl WindowManager {
 
     fn handle_window_focused<R: Runtime>(&self, window: &Window<R>) {
         let _ = window.emit("app_focused", serde_json::json!({}));
-
-        // 如果窗口处于收起状态，点击任务栏图标时自动展开
-        if *self.is_collapsed.lock().unwrap() {
-            self.expand_window(&window.app_handle());
+        
+        let is_collapsed = *self.is_collapsed.lock().unwrap();
+        let is_minimized = window.is_minimized().unwrap_or(false);
+        let pos = window.outer_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
+        let has_snap_edge = self.snap_line_edge.lock().unwrap().is_some();
+        
+        // 使用原子方法设置状态，确保黄线和主窗口严格关联
+        if is_collapsed {
+            // 收起状态：确保黄线可见、主窗口在屏幕外
+            self.set_collapsed_state(&window.app_handle(), true);
+        } else {
+            // 窗口未收起但可能被最小化或移到屏幕外
+            let is_offscreen = pos.x < -1000 || pos.y < -1000;
+            
+            if is_minimized || is_offscreen {
+                if has_snap_edge {
+                    // 有贴边，恢复到收起状态（显示黄线）
+                    self.collapse_window(window);
+                } else {
+                    // 没有贴边，展开显示主窗口
+                    self.set_collapsed_state(&window.app_handle(), false);
+                }
+            }
         }
     }
 

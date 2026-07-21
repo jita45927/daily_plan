@@ -183,6 +183,8 @@ onUnmounted(() => {
         <div class="flex items-start gap-1.5">
           <template v-if="isEditing">
             <input
+              :id="`edit-task-${task.id}`"
+              :name="`edit-task-${task.id}`"
               ref="editInputRef"
               v-model="editText"
               class="flex-1 text-xs leading-snug bg-white/90 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-yellow-500 text-gray-800"

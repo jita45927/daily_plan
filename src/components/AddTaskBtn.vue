@@ -70,6 +70,8 @@ onUnmounted(() => {
   <div class="add-task-container flex items-center justify-center gap-3 p-4">
     <div v-if="showInput" class="flex-1">
       <input
+        id="add-task-input"
+        name="add-task-input"
         ref="inputRef"
         v-model="newTask"
         @keyup.enter="handleAdd"
@@ -103,7 +105,10 @@ onUnmounted(() => {
     <button
       v-if="!showInput"
       @click="taskStore.toggleMute()"
-      class="w-6 h-6 rounded-full bg-yellow-500 hover:bg-yellow-600 flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95 flex-shrink-0"
+      :class="[
+        'w-6 h-6 rounded-full flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95 flex-shrink-0',
+        taskStore.isMuted ? 'bg-red-500 hover:bg-red-600' : 'bg-yellow-500 hover:bg-yellow-600'
+      ]"
       :title="taskStore.isMuted ? '静音（点击开启闹钟）' : '闹钟（点击关闭声音）'"
     >
       <svg v-if="!taskStore.isMuted" xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-white" viewBox="0 0 20 20" fill="currentColor">

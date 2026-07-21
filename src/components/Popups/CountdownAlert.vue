@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useTaskStore } from '../../stores/taskStore'
 import { invoke } from '@tauri-apps/api/core'
 
 const taskStore = useTaskStore()
 
 const expiredTask = computed(() => taskStore.expiredTask)
+const showLimitInput = ref(false)
+const limitMinutes = ref(25)
 
 const stopAlarm = () => {
   invoke('stop_alarm_cmd').catch(() => {})
@@ -29,7 +31,21 @@ const handleMarkIncomplete = () => {
 
 const handleReStart = () => {
   stopAlarm()
-  taskStore.reStartTimer()
+  showLimitInput.value = true
+}
+
+const confirmReStart = () => {
+  const minutes = parseInt(String(limitMinutes.value))
+  if (minutes && minutes > 0 && minutes <= 1440) {
+    taskStore.reStartTimer(minutes)
+  }
+  showLimitInput.value = false
+  limitMinutes.value = 25
+}
+
+const cancelReStart = () => {
+  showLimitInput.value = false
+  limitMinutes.value = 25
 }
 
 const handleCancel = () => {
@@ -71,12 +87,42 @@ const handleStopAlarm = () => {
             </button>
             
             <button
+              v-if="!showLimitInput"
               @click="handleReStart"
               class="w-full py-2.5 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
             >
               <span>🔄</span>
               <span>重新计时</span>
             </button>
+            
+            <div v-else class="bg-gray-50 rounded-lg p-3">
+              <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-600">限时（分钟）：</span>
+                <input
+                  id="restart-limit-minutes"
+                  name="restart-limit-minutes"
+                  v-model.number="limitMinutes"
+                  type="number"
+                  min="1"
+                  max="1440"
+                  class="flex-1 px-3 py-2 text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                />
+              </div>
+              <div class="flex justify-end gap-2 mt-2">
+                <button
+                  @click="cancelReStart"
+                  class="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-800 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  @click="confirmReStart"
+                  class="px-3 py-1.5 text-xs bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors"
+                >
+                  确定
+                </button>
+              </div>
+            </div>
             
             <button
               @click="handleStopAlarm"

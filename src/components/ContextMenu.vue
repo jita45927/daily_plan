@@ -251,6 +251,8 @@ onUnmounted(() => {
         <div class="bg-white rounded-lg p-6 shadow-xl">
           <h3 class="text-lg font-semibold text-gray-800 mb-4">限时任务（分钟）</h3>
           <input
+            id="context-menu-limit-minutes"
+            name="context-menu-limit-minutes"
             v-model="limitMinutes"
             type="number"
             min="1"
@@ -284,6 +286,8 @@ onUnmounted(() => {
         <div class="bg-white rounded-lg p-6 shadow-xl">
           <h3 class="text-lg font-semibold text-gray-800 mb-4">定时任务（YYYY/MM/DD-HH:MM）</h3>
           <input
+            id="context-menu-timer-datetime"
+            name="context-menu-timer-datetime"
             v-model="timerDateTime"
             type="text"
             placeholder="例如：2024/01/15-14:30"

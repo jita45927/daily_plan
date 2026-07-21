@@ -137,6 +137,8 @@ const handleScheduledFocus = (e: FocusEvent) => {
           <div v-if="mode === 'countdown'" class="space-y-4">
             <div class="flex items-center gap-2">
               <input
+                id="countdown-hours"
+                name="countdown-hours"
                 v-model="hours"
                 type="number"
                 min="0"
@@ -147,6 +149,8 @@ const handleScheduledFocus = (e: FocusEvent) => {
               />
               <span class="text-gray-400">:</span>
               <input
+                id="countdown-minutes"
+                name="countdown-minutes"
                 v-model="minutes"
                 type="number"
                 min="0"
@@ -156,11 +160,13 @@ const handleScheduledFocus = (e: FocusEvent) => {
                 @input="handleInput"
               />
             </div>
-            <p class="text-xs text-gray-500">提示：总时长范围 1-1440 分钟</p>
+            <p class="text-xs text-gray-500">提示：总时长范围 1分钟-24:00</p>
           </div>
           
           <div v-else class="space-y-4">
             <input
+              id="scheduled-time"
+              name="scheduled-time"
               v-model="scheduledTime"
               type="text"
               class="w-full px-3 py-2 text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"

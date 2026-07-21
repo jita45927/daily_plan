@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::async_runtime::spawn;
 use tokio::time::interval;
@@ -7,7 +8,7 @@ use winapi::shared::minwindef::{BOOL, UINT};
 use libloading::{Library, Symbol};
 
 pub struct TimerManager {
-    timers: Arc<Mutex<Vec<Timer>>>,
+    timers: Arc<Mutex<HashMap<i64, Timer>>>,
     is_alarm_playing: Arc<AtomicBool>,
 }
 
@@ -21,7 +22,7 @@ struct Timer {
 impl TimerManager {
     pub fn new() -> Self {
         TimerManager {
-            timers: Arc::new(Mutex::new(Vec::new())),
+            timers: Arc::new(Mutex::new(HashMap::new())),
             is_alarm_playing: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -35,7 +36,7 @@ impl TimerManager {
 
     fn spawn_timer_task(
         app_handle: tauri::AppHandle,
-        timers: Arc<Mutex<Vec<Timer>>>,
+        timers: Arc<Mutex<HashMap<i64, Timer>>>,
         task_id: i64,
         timer_type: String,
     ) {
@@ -48,8 +49,7 @@ impl TimerManager {
                 let mut timers_lock = timers.lock().unwrap();
 
                 let (remaining, is_running) = timers_lock
-                    .iter_mut()
-                    .find(|t| t.task_id == task_id)
+                    .get_mut(&task_id)
                     .map(|t| {
                         let remaining = if current_time >= t.target_time {
                             0
@@ -81,7 +81,7 @@ impl TimerManager {
                 );
 
                 if remaining == 0 {
-                    if let Some(timer) = timers_lock.iter_mut().find(|t| t.task_id == task_id) {
+                    if let Some(timer) = timers_lock.get_mut(&task_id) {
                         timer.is_running = false;
                     }
                     let _ = app_handle.emit(
@@ -122,7 +122,7 @@ impl TimerManager {
 
         {
             let mut timers = self.timers.lock().unwrap();
-            timers.push(timer);
+            timers.insert(task_id, timer);
         }
 
         Self::spawn_timer_task(
@@ -132,7 +132,7 @@ impl TimerManager {
             "countdown".to_string(),
         );
 
-        Ok(format!("倒计时已启动，时长 {} 分钟", minutes))
+        Ok(format!("{}", target_time))
     }
 
     pub fn start_scheduled_timer(
@@ -157,7 +157,7 @@ impl TimerManager {
 
         {
             let mut timers = self.timers.lock().unwrap();
-            timers.push(timer);
+            timers.insert(task_id, timer);
         }
 
         Self::spawn_timer_task(
@@ -192,7 +192,7 @@ impl TimerManager {
 
         {
             let mut timers = self.timers.lock().unwrap();
-            timers.push(timer);
+            timers.insert(task_id, timer);
         }
 
         Self::spawn_timer_task(
@@ -208,18 +208,16 @@ impl TimerManager {
     pub fn stop_timer(&self, task_id: i64) {
         {
             let mut timers = self.timers.lock().unwrap();
-            if let Some(timer) = timers.iter_mut().find(|t| t.task_id == task_id) {
+            if let Some(timer) = timers.get_mut(&task_id) {
                 timer.is_running = false;
             }
-            timers.retain(|t| t.task_id != task_id);
+            timers.remove(&task_id);
         }
-        // 注意：tauri::async_runtime::JoinHandle 不提供 is_finished() 方法，
-        // 任务通过 is_running 标志自行退出，无需显式清理 handles
     }
 
     pub fn get_timer_status(&self, task_id: i64) -> Option<TimerStatus> {
         let timers = self.timers.lock().unwrap();
-        if let Some(timer) = timers.iter().find(|t| t.task_id == task_id) {
+        if let Some(timer) = timers.get(&task_id) {
             let current_time = Self::get_current_timestamp();
             let remaining = if current_time >= timer.target_time {
                 0
@@ -248,7 +246,7 @@ impl TimerManager {
 
     pub fn calibrate_timer(&self, task_id: i64) -> Option<TimerStatus> {
         let mut timers = self.timers.lock().unwrap();
-        if let Some(timer) = timers.iter_mut().find(|t| t.task_id == task_id) {
+        if let Some(timer) = timers.get_mut(&task_id) {
             let current_time = Self::get_current_timestamp();
             let remaining = if current_time >= timer.target_time {
                 timer.is_running = false;

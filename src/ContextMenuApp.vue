@@ -346,6 +346,8 @@ onUnmounted(() => {
       <div style="background-color:#fff;border-radius:6px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
         <h3 style="font-size:13px;font-weight:600;color:#1f2937;margin:0 0 8px 0;">限时任务（分钟）</h3>
         <input
+          id="app-limit-minutes"
+          name="app-limit-minutes"
           v-model="limitMinutes"
           type="number"
           min="1"
@@ -380,6 +382,8 @@ onUnmounted(() => {
       <div style="background-color:#fff;border-radius:6px;padding:16px;box-shadow:0 4px 12px rgba(0,0,0,0.15);">
         <h3 style="font-size:13px;font-weight:600;color:#1f2937;margin:0 0 8px 0;">定时任务（YYYY/MM/DD-HH:MM）</h3>
         <input
+          id="app-timer-datetime"
+          name="app-timer-datetime"
           v-model="timerDateTime"
           type="text"
           style="width:100%;padding:6px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:12px;box-sizing:border-box;"

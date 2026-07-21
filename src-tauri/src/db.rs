@@ -2,7 +2,68 @@ use rusqlite::{params, Connection, Result, Error as SqliteError};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
+use std::sync::{Mutex, Once};
+use std::ops::{Deref, DerefMut};
 
+static DB_INIT: Once = Once::new();
+static mut DB_CONNECTION: Mutex<Option<Connection>> = Mutex::new(None);
+
+fn init_db_connection() {
+    DB_INIT.call_once(|| {
+        let conn = match connect_inner() {
+            Ok(c) => c,
+            Err(_) => {
+                let db_path = get_db_path();
+                let _ = fs::remove_file(&db_path);
+                Connection::open(&db_path).unwrap_or_else(|_| {
+                    panic!("无法初始化数据库连接");
+                })
+            }
+        };
+        #[allow(static_mut_refs)]
+        unsafe {
+            *DB_CONNECTION.lock().unwrap() = Some(conn);
+        }
+    });
+}
+
+struct DbGuard(std::sync::MutexGuard<'static, Option<Connection>>);
+
+impl Deref for DbGuard {
+    type Target = Connection;
+    
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref().unwrap()
+    }
+}
+
+impl DerefMut for DbGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.as_mut().unwrap()
+    }
+}
+
+fn get_db_guard() -> Result<DbGuard> {
+    init_db_connection();
+    #[allow(static_mut_refs)]
+    let mutex = unsafe { &DB_CONNECTION };
+    let guard = mutex.lock().map_err(|_| rusqlite::Error::InvalidQuery)?;
+    Ok(DbGuard(guard))
+}
+
+fn connect_inner() -> Result<Connection> {
+    let db_path = get_db_path();
+    let conn = Connection::open(&db_path)?;
+    if conn.execute("SELECT 1", []).is_ok() {
+        create_tables(&conn)?;
+        Ok(conn)
+    } else {
+        let _ = fs::remove_file(&db_path);
+        let conn = Connection::open(&db_path)?;
+        create_tables(&conn)?;
+        Ok(conn)
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -13,8 +74,8 @@ pub struct Task {
     pub color: String,
     pub bold: bool,
     pub timer_type: String,
-    pub timer_value: i32,
-    pub timer_remaining: i32,
+    pub timer_value: i64,
+    pub timer_remaining: i64,
     pub created_at: String,
     pub order_index: i32,
 }
@@ -29,8 +90,8 @@ pub struct DeletedTask {
     pub color: String,
     pub bold: bool,
     pub timer_type: String,
-    pub timer_value: i32,
-    pub timer_remaining: i32,
+    pub timer_value: i64,
+    pub timer_remaining: i64,
     pub created_at: String,
     pub order_index: i32,
     pub deleted_at: String,
@@ -46,7 +107,6 @@ pub struct WindowConfig {
 }
 
 fn get_db_path() -> PathBuf {
-    // 使用可执行文件所在目录，避免开发模式下数据库文件被 Tauri 文件监视器检测到
     let mut path = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|p| p.to_path_buf()))
@@ -119,6 +179,7 @@ fn create_tables(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+#[allow(unused)]
 fn is_db_corrupted(error: &SqliteError) -> bool {
     let error_str = error.to_string().to_lowercase();
     error_str.contains("cannot open") || 
@@ -139,32 +200,8 @@ fn sanitize_color(color: &str) -> String {
     "#000000".to_string()
 }
 
-fn connect_with_recovery() -> Result<Connection> {
-    let db_path = get_db_path();
-    
-    match Connection::open(&db_path) {
-        Ok(conn) => {
-            if conn.execute("SELECT 1", []).is_ok() {
-                create_tables(&conn)?;
-                Ok(conn)
-            } else {
-                let _ = fs::remove_file(&db_path);
-                let conn = Connection::open(&db_path)?;
-                create_tables(&conn)?;
-                Ok(conn)
-            }
-        }
-        Err(e) => {
-            if is_db_corrupted(&e) {
-                let _ = fs::remove_file(&db_path);
-                let conn = Connection::open(&db_path)?;
-                create_tables(&conn)?;
-                Ok(conn)
-            } else {
-                Err(e)
-            }
-        }
-    }
+fn connect_with_recovery() -> Result<DbGuard> {
+    get_db_guard()
 }
 
 pub fn reinitialize_db() -> Result<bool> {
@@ -185,8 +222,8 @@ pub fn insert_task(
     color: &str,
     bold: bool,
     timer_type: &str,
-    timer_value: i32,
-    timer_remaining: i32,
+    timer_value: i64,
+    timer_remaining: i64,
 ) -> Result<Task> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
@@ -197,16 +234,14 @@ pub fn insert_task(
     let max_order: i32 = conn
         .query_row(
             "SELECT COALESCE(MAX(order_index), -1) FROM tasks WHERE status = ?1",
-            params![status],
+            [status],
             |row| row.get(0),
         )
-        .unwrap_or(-1);
-    let order_index = max_order + 1;
+        .unwrap_or(0);
 
     conn.execute(
-        "INSERT INTO tasks (text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![text, status, safe_color, bold, timer_type, timer_value, timer_remaining, created_at, order_index],
+        "INSERT INTO tasks (text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![text, status, safe_color, bold, timer_type, timer_value, timer_remaining, created_at, max_order + 1],
     )?;
 
     Ok(Task {
@@ -219,16 +254,16 @@ pub fn insert_task(
         timer_value,
         timer_remaining,
         created_at,
-        order_index,
+        order_index: max_order + 1,
     })
 }
 
-pub fn get_all_tasks() -> Result<Vec<Task>> {
+pub fn get_tasks() -> Result<Vec<Task>> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let mut stmt = conn.prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks ORDER BY status ASC, order_index ASC, created_at DESC")?;
-    let tasks = stmt.query_map([], |row| {
+    let mut stmt = conn.prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks ORDER BY status, order_index")?;
+    let tasks_iter = stmt.query_map([], |row| {
         Ok(Task {
             id: row.get(0)?,
             text: row.get(1)?,
@@ -243,12 +278,12 @@ pub fn get_all_tasks() -> Result<Vec<Task>> {
         })
     })?;
 
-    let mut result = Vec::new();
-    for task in tasks {
-        result.push(task?);
+    let mut tasks = Vec::new();
+    for task in tasks_iter {
+        tasks.push(task?);
     }
 
-    Ok(result)
+    Ok(tasks)
 }
 
 pub fn update_task(
@@ -258,8 +293,8 @@ pub fn update_task(
     color: &str,
     bold: bool,
     timer_type: &str,
-    timer_value: i32,
-    timer_remaining: i32,
+    timer_value: i64,
+    timer_remaining: i64,
 ) -> Result<Task> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
@@ -271,66 +306,158 @@ pub fn update_task(
         params![text, status, safe_color, bold, timer_type, timer_value, timer_remaining, id],
     )?;
 
-    let mut stmt = conn.prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks WHERE id = ?1")?;
-    let task = stmt.query_row(params![id], |row| {
-        Ok(Task {
-            id: row.get(0)?,
-            text: row.get(1)?,
-            status: row.get(2)?,
-            color: row.get(3)?,
-            bold: row.get(4)?,
-            timer_type: row.get(5)?,
-            timer_value: row.get(6)?,
-            timer_remaining: row.get(7)?,
-            created_at: row.get(8)?,
-            order_index: row.get(9)?,
-        })
-    })?;
+    let task = conn.query_row(
+        "SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                status: row.get(2)?,
+                color: row.get(3)?,
+                bold: row.get(4)?,
+                timer_type: row.get(5)?,
+                timer_value: row.get(6)?,
+                timer_remaining: row.get(7)?,
+                created_at: row.get(8)?,
+                order_index: row.get(9)?,
+            })
+        },
+    )?;
 
     Ok(task)
-}
-
-pub fn reorder_tasks(task_ids: Vec<i64>, status: bool) -> Result<bool> {
-    let conn = connect_with_recovery()?;
-    create_tables(&conn)?;
-
-    let tx = conn.unchecked_transaction()?;
-    for (index, &task_id) in task_ids.iter().enumerate() {
-        tx.execute(
-            "UPDATE tasks SET order_index = ?1 WHERE id = ?2 AND status = ?3",
-            params![index as i32, task_id, status],
-        )?;
-    }
-    tx.commit()?;
-
-    Ok(true)
 }
 
 pub fn delete_task(id: i64) -> Result<bool> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let changes = conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
-    Ok(changes > 0)
+    let task: Task = conn.query_row(
+        "SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks WHERE id = ?1",
+        [id],
+        |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                status: row.get(2)?,
+                color: row.get(3)?,
+                bold: row.get(4)?,
+                timer_type: row.get(5)?,
+                timer_value: row.get(6)?,
+                timer_remaining: row.get(7)?,
+                created_at: row.get(8)?,
+                order_index: row.get(9)?,
+            })
+        },
+    )?;
+
+    let deleted_at = chrono::Local::now().to_rfc3339();
+
+    conn.execute(
+        "INSERT INTO deleted_tasks (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![task.id, task.text, task.status, task.color, task.bold, task.timer_type, task.timer_value, task.timer_remaining, task.created_at, task.order_index, deleted_at],
+    )?;
+
+    conn.execute("DELETE FROM tasks WHERE id = ?1", [id])?;
+
+    Ok(true)
 }
 
-pub fn delete_completed_tasks() -> Result<i64> {
+pub fn get_deleted_tasks() -> Result<Vec<DeletedTask>> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let changes = conn.execute("DELETE FROM tasks WHERE status = 1", [])?;
-    Ok(changes as i64)
+    let mut stmt = conn.prepare("SELECT id, original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at FROM deleted_tasks ORDER BY deleted_at DESC")?;
+    let tasks_iter = stmt.query_map([], |row| {
+        Ok(DeletedTask {
+            id: row.get(0)?,
+            original_id: row.get(1)?,
+            text: row.get(2)?,
+            status: row.get(3)?,
+            color: row.get(4)?,
+            bold: row.get(5)?,
+            timer_type: row.get(6)?,
+            timer_value: row.get(7)?,
+            timer_remaining: row.get(8)?,
+            created_at: row.get(9)?,
+            order_index: row.get(10)?,
+            deleted_at: row.get(11)?,
+        })
+    })?;
+
+    let mut tasks = Vec::new();
+    for task in tasks_iter {
+        tasks.push(task?);
+    }
+
+    Ok(tasks)
 }
 
-pub fn delete_all_tasks() -> Result<i64> {
+pub fn restore_deleted_task(original_id: i64) -> Result<bool> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let changes = conn.execute("DELETE FROM tasks", [])?;
-    Ok(changes as i64)
+    let deleted_task: DeletedTask = conn.query_row(
+        "SELECT id, original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at FROM deleted_tasks WHERE original_id = ?1",
+        [original_id],
+        |row| {
+            Ok(DeletedTask {
+                id: row.get(0)?,
+                original_id: row.get(1)?,
+                text: row.get(2)?,
+                status: row.get(3)?,
+                color: row.get(4)?,
+                bold: row.get(5)?,
+                timer_type: row.get(6)?,
+                timer_value: row.get(7)?,
+                timer_remaining: row.get(8)?,
+                created_at: row.get(9)?,
+                order_index: row.get(10)?,
+                deleted_at: row.get(11)?,
+            })
+        },
+    )?;
+
+    conn.execute(
+        "INSERT INTO tasks (text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![deleted_task.text, deleted_task.status, deleted_task.color, deleted_task.bold, deleted_task.timer_type, deleted_task.timer_value, deleted_task.timer_remaining, deleted_task.created_at, deleted_task.order_index],
+    )?;
+
+    conn.execute("DELETE FROM deleted_tasks WHERE original_id = ?1", [original_id])?;
+
+    Ok(true)
 }
 
-pub fn get_db_window_config() -> Result<WindowConfig> {
+pub fn permanently_delete_task(id: i64) -> Result<bool> {
+    let conn = connect_with_recovery()?;
+    create_tables(&conn)?;
+
+    conn.execute("DELETE FROM deleted_tasks WHERE id = ?1", [id])?;
+
+    Ok(true)
+}
+
+#[allow(unused)]
+pub fn clear_deleted_tasks() -> Result<bool> {
+    let conn = connect_with_recovery()?;
+    create_tables(&conn)?;
+
+    conn.execute("DELETE FROM deleted_tasks", [])?;
+
+    Ok(true)
+}
+
+#[allow(unused)]
+pub fn update_task_order(task_id: i64, new_order: i32) -> Result<bool> {
+    let conn = connect_with_recovery()?;
+    create_tables(&conn)?;
+
+    conn.execute("UPDATE tasks SET order_index = ?1 WHERE id = ?2", params![new_order, task_id])?;
+
+    Ok(true)
+}
+
+pub fn get_window_config() -> Result<WindowConfig> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
@@ -351,7 +478,7 @@ pub fn get_db_window_config() -> Result<WindowConfig> {
     Ok(config)
 }
 
-pub fn save_db_window_config(x: f64, y: f64, height: f64, locked: bool) -> Result<WindowConfig> {
+pub fn save_window_config(x: f64, y: f64, height: f64, locked: bool) -> Result<bool> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
@@ -360,167 +487,252 @@ pub fn save_db_window_config(x: f64, y: f64, height: f64, locked: bool) -> Resul
         params![x, y, height, locked],
     )?;
 
+    Ok(true)
+}
+
+pub fn save_db_window_config(x: f64, y: f64, height: f64, locked: bool) -> Result<WindowConfig> {
+    save_window_config(x, y, height, locked)?;
     Ok(WindowConfig { id: 1, x, y, height, locked })
 }
 
-pub fn move_task_to_trash(task_id: i64) -> Result<bool> {
-    let conn = connect_with_recovery()?;
-    create_tables(&conn)?;
-
-    let mut stmt = conn.prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks WHERE id = ?1")?;
-    let task = stmt.query_row(params![task_id], |row| {
-        Ok(Task {
-            id: row.get(0)?,
-            text: row.get(1)?,
-            status: row.get(2)?,
-            color: row.get(3)?,
-            bold: row.get(4)?,
-            timer_type: row.get(5)?,
-            timer_value: row.get(6)?,
-            timer_remaining: row.get(7)?,
-            created_at: row.get(8)?,
-            order_index: row.get(9)?,
-        })
-    })?;
-
-    let deleted_at = chrono::Local::now().to_rfc3339();
-
-    conn.execute(
-        "INSERT INTO deleted_tasks (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![task.id, task.text, task.status, task.color, task.bold, task.timer_type, task.timer_value, task.timer_remaining, task.created_at, task.order_index, deleted_at],
-    )?;
-
-    conn.execute("DELETE FROM tasks WHERE id = ?1", params![task_id])?;
-
-    Ok(true)
+pub fn get_db_window_config() -> Result<WindowConfig> {
+    get_window_config()
 }
 
-pub fn get_deleted_tasks() -> Result<Vec<DeletedTask>> {
-    let conn = connect_with_recovery()?;
-    create_tables(&conn)?;
+pub fn get_all_tasks() -> Result<Vec<Task>> {
+    get_tasks()
+}
 
-    let mut stmt = conn.prepare("SELECT id, original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at FROM deleted_tasks ORDER BY deleted_at DESC")?;
-    let tasks = stmt.query_map([], |row| {
-        Ok(DeletedTask {
-            id: row.get(0)?,
-            original_id: row.get(1)?,
-            text: row.get(2)?,
-            status: row.get(3)?,
-            color: row.get(4)?,
-            bold: row.get(5)?,
-            timer_type: row.get(6)?,
-            timer_value: row.get(7)?,
-            timer_remaining: row.get(8)?,
-            created_at: row.get(9)?,
-            order_index: row.get(10)?,
-            deleted_at: row.get(11)?,
-        })
-    })?;
-
-    let mut result = Vec::new();
-    for task in tasks {
-        result.push(task?);
-    }
-
-    Ok(result)
+pub fn move_task_to_trash(task_id: i64) -> Result<bool> {
+    delete_task(task_id)
 }
 
 pub fn restore_task(deleted_id: i64) -> Result<bool> {
-    let conn = connect_with_recovery()?;
-    create_tables(&conn)?;
-
-    let mut stmt = conn.prepare("SELECT original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM deleted_tasks WHERE id = ?1")?;
-    let deleted_task = stmt.query_row(params![deleted_id], |row| {
-        Ok((
-            row.get::<_, i64>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, bool>(2)?,
-            row.get::<_, String>(3)?,
-            row.get::<_, bool>(4)?,
-            row.get::<_, String>(5)?,
-            row.get::<_, i32>(6)?,
-            row.get::<_, i32>(7)?,
-            row.get::<_, String>(8)?,
-            row.get::<_, i32>(9)?,
-        ))
-    })?;
-
-    let (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index) = deleted_task;
-
-    let max_order: i32 = conn
-        .query_row(
-            "SELECT COALESCE(MAX(order_index), -1) FROM tasks WHERE status = ?1",
-            params![status],
-            |row| row.get(0),
-        )
-        .unwrap_or(-1);
-    let new_order_index = if order_index > max_order { order_index } else { max_order + 1 };
-
-    conn.execute(
-        "INSERT INTO tasks (id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, new_order_index],
-    )?;
-
-    conn.execute("DELETE FROM deleted_tasks WHERE id = ?1", params![deleted_id])?;
-
-    Ok(true)
+    restore_deleted_task(deleted_id)
 }
 
-pub fn permanently_delete_task(deleted_id: i64) -> Result<bool> {
+pub fn delete_completed_tasks() -> Result<i64> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let changes = conn.execute("DELETE FROM deleted_tasks WHERE id = ?1", params![deleted_id])?;
-    Ok(changes > 0)
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM tasks WHERE status = 1",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    let tasks: Vec<Task> = conn
+        .prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks WHERE status = 1")?
+        .query_map([], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                status: row.get(2)?,
+                color: row.get(3)?,
+                bold: row.get(4)?,
+                timer_type: row.get(5)?,
+                timer_value: row.get(6)?,
+                timer_remaining: row.get(7)?,
+                created_at: row.get(8)?,
+                order_index: row.get(9)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let deleted_at = chrono::Local::now().to_rfc3339();
+    for task in tasks {
+        conn.execute(
+            "INSERT INTO deleted_tasks (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![task.id, task.text, task.status, task.color, task.bold, task.timer_type, task.timer_value, task.timer_remaining, task.created_at, task.order_index, deleted_at],
+        ).ok();
+    }
+
+    conn.execute("DELETE FROM tasks WHERE status = 1", [])?;
+    Ok(count)
+}
+
+pub fn delete_all_tasks() -> Result<i64> {
+    let conn = connect_with_recovery()?;
+    create_tables(&conn)?;
+
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM tasks",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    let tasks: Vec<Task> = conn
+        .prepare("SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index FROM tasks")?
+        .query_map([], |row| {
+            Ok(Task {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                status: row.get(2)?,
+                color: row.get(3)?,
+                bold: row.get(4)?,
+                timer_type: row.get(5)?,
+                timer_value: row.get(6)?,
+                timer_remaining: row.get(7)?,
+                created_at: row.get(8)?,
+                order_index: row.get(9)?,
+            })
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let deleted_at = chrono::Local::now().to_rfc3339();
+    for task in tasks {
+        conn.execute(
+            "INSERT INTO deleted_tasks (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![task.id, task.text, task.status, task.color, task.bold, task.timer_type, task.timer_value, task.timer_remaining, task.created_at, task.order_index, deleted_at],
+        ).ok();
+    }
+
+    conn.execute("DELETE FROM tasks", [])?;
+    Ok(count)
+}
+
+pub fn move_completed_to_trash() -> Result<i64> {
+    delete_completed_tasks()
+}
+
+pub fn move_all_to_trash() -> Result<i64> {
+    delete_all_tasks()
 }
 
 pub fn clear_trash_by_period(period_days: i64) -> Result<i64> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let changes = if period_days <= 0 {
-        conn.execute("DELETE FROM deleted_tasks", [])?
-    } else {
-        let cutoff = chrono::Local::now() - chrono::Duration::days(period_days);
-        let cutoff_str = cutoff.to_rfc3339();
-        conn.execute("DELETE FROM deleted_tasks WHERE deleted_at < ?1", params![cutoff_str])?
-    };
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM deleted_tasks WHERE deleted_at < datetime('now', '-?1 days')",
+        [period_days],
+        |row| row.get(0),
+    ).unwrap_or(0);
 
-    Ok(changes as i64)
+    conn.execute(
+        "DELETE FROM deleted_tasks WHERE deleted_at < datetime('now', '-?1 days')",
+        [period_days],
+    )?;
+
+    Ok(count)
 }
 
-pub fn move_completed_to_trash() -> Result<i64> {
+pub fn reorder_tasks(task_ids: Vec<i64>, status: bool) -> Result<bool> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let deleted_at = chrono::Local::now().to_rfc3339();
+    for (index, task_id) in task_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE tasks SET order_index = ?1 WHERE id = ?2 AND status = ?3",
+            params![index as i32, task_id, status],
+        )?;
+    }
 
-    conn.execute(
-        "INSERT INTO deleted_tasks (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at)
-         SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, ?1
-         FROM tasks WHERE status = 1",
-        params![deleted_at],
-    )?;
-
-    let changes = conn.execute("DELETE FROM tasks WHERE status = 1", [])?;
-    Ok(changes as i64)
+    Ok(true)
 }
 
-pub fn move_all_to_trash() -> Result<i64> {
-    let conn = connect_with_recovery()?;
-    create_tables(&conn)?;
+#[tauri::command]
+pub fn insert_task_cmd(
+    text: &str,
+    status: bool,
+    color: &str,
+    bold: bool,
+    timer_type: &str,
+    timer_value: i64,
+    timer_remaining: i64,
+) -> Result<Task, String> {
+    insert_task(text, status, color, bold, timer_type, timer_value, timer_remaining)
+        .map_err(|e| e.to_string())
+}
 
-    let deleted_at = chrono::Local::now().to_rfc3339();
+#[tauri::command]
+pub fn get_all_tasks_cmd() -> Result<Vec<Task>, String> {
+    get_all_tasks().map_err(|e| e.to_string())
+}
 
-    conn.execute(
-        "INSERT INTO deleted_tasks (original_id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, deleted_at)
-         SELECT id, text, status, color, bold, timer_type, timer_value, timer_remaining, created_at, order_index, ?1
-         FROM tasks",
-        params![deleted_at],
-    )?;
+#[tauri::command]
+pub fn update_task_cmd(
+    id: i64,
+    text: &str,
+    status: bool,
+    color: &str,
+    bold: bool,
+    timer_type: &str,
+    timer_value: i64,
+    timer_remaining: i64,
+) -> Result<Task, String> {
+    update_task(id, text, status, color, bold, timer_type, timer_value, timer_remaining)
+        .map_err(|e| e.to_string())
+}
 
-    let changes = conn.execute("DELETE FROM tasks", [])?;
-    Ok(changes as i64)
+#[tauri::command]
+pub fn delete_task_cmd(id: i64) -> Result<bool, String> {
+    delete_task(id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_completed_tasks_cmd() -> Result<i64, String> {
+    delete_completed_tasks().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn delete_all_tasks_cmd() -> Result<i64, String> {
+    delete_all_tasks().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn move_task_to_trash_cmd(task_id: i64) -> Result<bool, String> {
+    move_task_to_trash(task_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_deleted_tasks_cmd() -> Result<Vec<DeletedTask>, String> {
+    get_deleted_tasks().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn restore_task_cmd(deleted_id: i64) -> Result<bool, String> {
+    restore_task(deleted_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn permanently_delete_task_cmd(deleted_id: i64) -> Result<bool, String> {
+    permanently_delete_task(deleted_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_trash_by_period_cmd(period_days: i64) -> Result<i64, String> {
+    clear_trash_by_period(period_days).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn move_completed_to_trash_cmd() -> Result<i64, String> {
+    move_completed_to_trash().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn move_all_to_trash_cmd() -> Result<i64, String> {
+    move_all_to_trash().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reinitialize_db_cmd() -> Result<bool, String> {
+    reinitialize_db().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reorder_tasks_cmd(task_ids: Vec<i64>, status: bool) -> Result<bool, String> {
+    reorder_tasks(task_ids, status).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_db_window_config_cmd() -> Result<WindowConfig, String> {
+    get_db_window_config().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn save_db_window_config_cmd(x: f64, y: f64, height: f64, locked: bool) -> Result<WindowConfig, String> {
+    save_db_window_config(x, y, height, locked).map_err(|e| e.to_string())
 }

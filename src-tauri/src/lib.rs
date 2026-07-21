@@ -12,7 +12,14 @@ use base64::Engine;
 
 use tauri::{Manager, Emitter};
 use tauri_plugin_dialog;
-use db::{delete_all_tasks, delete_completed_tasks, delete_task, get_all_tasks, get_db_window_config, get_deleted_tasks, insert_task, move_task_to_trash, move_completed_to_trash, move_all_to_trash, permanently_delete_task, clear_trash_by_period, reinitialize_db, reorder_tasks, restore_task, save_db_window_config, update_task};
+use db::{
+    reinitialize_db, save_db_window_config,
+    insert_task_cmd, get_all_tasks_cmd, update_task_cmd, delete_task_cmd,
+    delete_completed_tasks_cmd, delete_all_tasks_cmd, move_task_to_trash_cmd,
+    get_deleted_tasks_cmd, restore_task_cmd, permanently_delete_task_cmd,
+    clear_trash_by_period_cmd, move_completed_to_trash_cmd, move_all_to_trash_cmd,
+    reinitialize_db_cmd, reorder_tasks_cmd, get_db_window_config_cmd, save_db_window_config_cmd,
+};
 use desktop_sort::{
     get_desktop_path, organize_desktop, ConflictStrategy, DesktopAnalyzeManager,
     analyze_desktop_cmd, show_analyze_window, get_desktop_analysis, close_desktop_analyze,
@@ -65,100 +72,6 @@ fn exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
 }
 
 #[tauri::command]
-fn insert_task_cmd(
-    text: &str,
-    status: bool,
-    color: &str,
-    bold: bool,
-    timer_type: &str,
-    timer_value: i32,
-    timer_remaining: i32,
-) -> Result<db::Task, String> {
-    insert_task(text, status, color, bold, timer_type, timer_value, timer_remaining)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_all_tasks_cmd() -> Result<Vec<db::Task>, String> {
-    get_all_tasks().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn update_task_cmd(
-    id: i64,
-    text: &str,
-    status: bool,
-    color: &str,
-    bold: bool,
-    timer_type: &str,
-    timer_value: i32,
-    timer_remaining: i32,
-) -> Result<db::Task, String> {
-    update_task(id, text, status, color, bold, timer_type, timer_value, timer_remaining)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_task_cmd(id: i64) -> Result<bool, String> {
-    delete_task(id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_completed_tasks_cmd() -> Result<i64, String> {
-    delete_completed_tasks().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn delete_all_tasks_cmd() -> Result<i64, String> {
-    delete_all_tasks().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn move_task_to_trash_cmd(task_id: i64) -> Result<bool, String> {
-    move_task_to_trash(task_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn get_deleted_tasks_cmd() -> Result<Vec<db::DeletedTask>, String> {
-    get_deleted_tasks().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn restore_task_cmd(deleted_id: i64) -> Result<bool, String> {
-    restore_task(deleted_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn permanently_delete_task_cmd(deleted_id: i64) -> Result<bool, String> {
-    permanently_delete_task(deleted_id).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn clear_trash_by_period_cmd(period_days: i64) -> Result<i64, String> {
-    clear_trash_by_period(period_days).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn move_completed_to_trash_cmd() -> Result<i64, String> {
-    move_completed_to_trash().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn move_all_to_trash_cmd() -> Result<i64, String> {
-    move_all_to_trash().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn reinitialize_db_cmd() -> Result<bool, String> {
-    reinitialize_db().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn reorder_tasks_cmd(task_ids: Vec<i64>, status: bool) -> Result<bool, String> {
-    reorder_tasks(task_ids, status).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     reinitialize_db().map_err(|e| e.to_string())?;
 
@@ -185,16 +98,6 @@ fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     }
 
     Ok(true)
-}
-
-#[tauri::command]
-fn get_db_window_config_cmd() -> Result<db::WindowConfig, String> {
-    get_db_window_config().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-fn save_db_window_config_cmd(x: f64, y: f64, height: f64, locked: bool) -> Result<db::WindowConfig, String> {
-    save_db_window_config(x, y, height, locked).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

@@ -30,9 +30,6 @@ export interface DeletedTask {
   deletedAt: string
 }
 
-type TaskResponse = Task
-type DeletedTaskResponse = DeletedTask
-
 export interface TimerState {
   task_id: number
   remaining: number
@@ -48,6 +45,7 @@ export interface ExpiredTask {
   task_title: string
   timerType: string
   lastTimerValue: number
+  duration: number  // 原始持续时间（秒），用于重新计时
 }
 
 export interface ErrorAlert {
@@ -75,68 +73,79 @@ export interface CleanStats {
   categories: CategoryResult[]
 }
 
+type TaskResponse = Task
+type DeletedTaskResponse = DeletedTask
+
 export const useTaskStore = defineStore('tasks', () => {
+  // 任务状态
   const tasks = ref<Task[]>([])
   const isWindowLocked = ref(false)
-  const confirmDialog = ref({
-    show: false,
-    title: '',
-    message: '',
-    onConfirm: () => {}
-  })
-
-  const errorAlert = ref<ErrorAlert>({
-    show: false,
-    title: '',
-    message: ''
-  })
-
-  const activePopups = ref<{
-    colorPicker?: boolean
-    timeInput?: boolean
-    countdownAlert?: boolean
-  }>({})
-
   const contextMenu = ref({
     show: false,
     x: 0,
     y: 0,
     taskId: 0
   })
-
   const mainMenu = ref({
     show: false,
     x: 0,
     y: 0
   })
-
   const isAnalyzingDesktop = ref(false)
   const isCleaningDuplicates = ref(false)
+  
+  // 定时器状态
+  const timerStates = ref<Map<number, TimerState>>(new Map())
+  const expiredTask = ref<ExpiredTask | null>(null)
+  const isMuted = ref(true)
+  
+  // 回收站状态
+  const deletedTasks = ref<DeletedTask[]>([])
+  const trashWindowVisible = ref(false)
+  
+  // 弹窗状态
+  const confirmDialog = ref({
+    show: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+    onCancel: () => {}
+  })
+  const errorAlert = ref<ErrorAlert>({
+    show: false,
+    title: '',
+    message: ''
+  })
+  const activePopups = ref<{
+    colorPicker?: boolean
+    timeInput?: boolean
+    countdownAlert?: boolean
+  }>({})
+  
+  // 清理电脑状态
   const isCleaningComputer = ref(false)
-  const cleanComputerStats = ref<CleanStats | null>(null)
+  const cleanComputerStats = ref<CleanStats>({
+    scanned: 0,
+    deleted: 0,
+    skipped: 0,
+    freedBytes: 0,
+    currentCategory: '',
+    currentPath: '',
+    isRunning: false,
+    errorDetails: [],
+    categories: []
+  })
   const cleanComputerNotice = ref({
     show: false,
     title: '',
     message: ''
   })
 
-  const timerStates = ref<Map<number, TimerState>>(new Map())
-  const expiredTask = ref<ExpiredTask | null>(null)
-  const deletedTasks = ref<DeletedTask[]>([])
-  const trashWindowVisible = ref(false)
-  const isMuted = ref(true)
-
+  // 计算属性
   const incompleteTasks = computed(() => tasks.value.filter(t => !t.status).sort((a, b) => a.orderIndex - b.orderIndex))
   const completedTasks = computed(() => tasks.value.filter(t => t.status).sort((a, b) => a.orderIndex - b.orderIndex))
 
-  const showErrorAlert = (title: string, message: string) => {
-    errorAlert.value = { show: true, title, message }
-  }
-
-  const hideErrorAlert = () => {
-    errorAlert.value = { show: false, title: '', message: '' }
-  }
-
+  // 验证方法
   const validateCountdownMinutes = (minutes: string): { valid: boolean; message: string } => {
     const num = parseInt(minutes)
     if (isNaN(num)) {
@@ -153,23 +162,18 @@ export const useTaskStore = defineStore('tasks', () => {
     if (!regex.test(time)) {
       return { valid: false, message: '时间格式必须为 YYYY/MM/DD-HH:MM' }
     }
-
     const [datePart, timePart] = time.split('-')
     const [year, month, day] = datePart.split('/').map(Number)
     const [hour, minute] = timePart.split(':').map(Number)
-
     const date = new Date(year, month - 1, day, hour, minute)
     const now = new Date()
     now.setSeconds(0, 0)
-
     if (isNaN(date.getTime())) {
       return { valid: false, message: '请输入有效的日期时间' }
     }
-
     if (date <= now) {
       return { valid: false, message: '目标时间不能早于当前时间' }
     }
-
     return { valid: true, message: '' }
   }
 
@@ -177,7 +181,6 @@ export const useTaskStore = defineStore('tasks', () => {
     const [datePart, timePart] = time.split('-')
     const [year, month, day] = datePart.split('/').map(Number)
     const [hour, minute] = timePart.split(':').map(Number)
-
     const date = new Date(year, month - 1, day, hour, minute)
     if (isNaN(date.getTime())) {
       return null
@@ -185,84 +188,51 @@ export const useTaskStore = defineStore('tasks', () => {
     return Math.floor(date.getTime() / 1000)
   }
 
+  // 错误处理方法
+  const showErrorAlert = (title: string, message: string) => {
+    errorAlert.value = { show: true, title, message }
+  }
+
+  const hideErrorAlert = () => {
+    errorAlert.value = { show: false, title: '', message: '' }
+  }
+
   const handleDbError = async (error: unknown, action: string) => {
     console.error(`Database error during ${action}:`, error)
     const errorMsg = error instanceof Error ? error.message : String(error)
-    
     if (errorMsg.includes('损坏') || errorMsg.includes('corrupted') || errorMsg.includes('CannotOpen')) {
       showErrorAlert('数据库损坏', '检测到数据库文件损坏，已自动重置为空白任务列表。')
       await invoke('reinitialize_db_cmd')
-      tasks.value = []
-      timerStates.value.clear()
     } else {
       showErrorAlert('数据库错误', `执行${action}时发生错误: ${errorMsg}`)
     }
   }
 
+  const showConfirm = (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => {
+    confirmDialog.value = { show: true, title, message, onConfirm, onCancel: onCancel || (() => {}) }
+  }
+
+  const hideConfirm = () => {
+    confirmDialog.value = { show: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} }
+  }
+
+  const openPopup = (popup: keyof typeof activePopups.value) => {
+    activePopups.value[popup] = true
+  }
+
+  const closePopup = (popup: keyof typeof activePopups.value) => {
+    activePopups.value[popup] = false
+  }
+
+  // 任务方法
   const loadTasks = async () => {
     try {
       const result = await invoke<TaskResponse[]>('get_all_tasks_cmd')
       tasks.value = result
-      await restoreTimers()
+      await restoreTimers(tasks.value)
     } catch (error) {
       await handleDbError(error, '加载任务')
     }
-  }
-
-  const restoreTimers = async () => {
-    const timerTasks = tasks.value.filter(t => t.timerType && t.timerType !== '' && t.timerValue > 0)
-    
-    if (timerTasks.length === 0) {
-      return
-    }
-
-    const currentTime = Math.floor(Date.now() / 1000)
-    const promises: Promise<void>[] = []
-
-    for (const task of timerTasks) {
-      if (currentTime >= task.timerValue) {
-        task.timerRemaining = 0
-        task.timerType = ''
-        task.timerValue = 0
-        task.status = true
-        task.color = '#000000'
-        task.bold = false
-        promises.push(
-          invoke('update_task_cmd', {
-            id: task.id,
-            text: task.text,
-            status: true,
-            color: '#000000',
-            bold: false,
-            timerType: '',
-            timerValue: 0,
-            timerRemaining: 0
-          }).then(() => {})
-        )
-      } else {
-        const remainingSeconds = task.timerValue - currentTime
-        task.timerRemaining = remainingSeconds
-        promises.push(
-          invoke('update_task_cmd', {
-            id: task.id,
-            text: task.text,
-            status: task.status,
-            color: task.color,
-            bold: task.bold,
-            timerType: task.timerType,
-            timerValue: task.timerValue,
-            timerRemaining: remainingSeconds
-          }).then(() => {
-            return invoke('restore_scheduled_timer_cmd', {
-              taskId: task.id,
-              targetTimestamp: task.timerValue
-            }).then(() => {})
-          })
-        )
-      }
-    }
-
-    await Promise.all(promises)
   }
 
   const addTask = async (text: string) => {
@@ -285,8 +255,7 @@ export const useTaskStore = defineStore('tasks', () => {
   const removeTask = async (id: number) => {
     try {
       await invoke('delete_task_cmd', { id })
-      await invoke('stop_timer_cmd', { taskId: id })
-      timerStates.value.delete(id)
+      await stopTimer(id)
       const index = tasks.value.findIndex(t => t.id === id)
       if (index !== -1) {
         tasks.value.splice(index, 1)
@@ -300,8 +269,7 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const task = tasks.value.find(t => t.id === id)
       if (task) {
-        await invoke('stop_timer_cmd', { taskId: id })
-        timerStates.value.delete(id)
+        await stopTimer(id)
         const result = await invoke<TaskResponse>('update_task_cmd', {
           id: task.id,
           text: task.text,
@@ -323,8 +291,7 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const task = tasks.value.find(t => t.id === id)
       if (task) {
-        await invoke('stop_timer_cmd', { taskId: id })
-        timerStates.value.delete(id)
+        await stopTimer(id)
         const result = await invoke<TaskResponse>('update_task_cmd', {
           id: task.id,
           text: task.text,
@@ -346,8 +313,7 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       const task = tasks.value.find(t => t.id === id)
       if (task) {
-        await invoke('stop_timer_cmd', { taskId: id })
-        timerStates.value.delete(id)
+        await stopTimer(id)
         const result = await invoke<TaskResponse>('update_task_cmd', {
           id: task.id,
           text: task.text,
@@ -372,22 +338,6 @@ export const useTaskStore = defineStore('tasks', () => {
     } catch (error) {
       console.error('Failed to toggle window lock:', error)
     }
-  }
-
-  const showConfirm = (title: string, message: string, onConfirm: () => void) => {
-    confirmDialog.value = { show: true, title, message, onConfirm }
-  }
-
-  const hideConfirm = () => {
-    confirmDialog.value = { show: false, title: '', message: '', onConfirm: () => {} }
-  }
-
-  const openPopup = (popup: keyof typeof activePopups.value) => {
-    activePopups.value[popup] = true
-  }
-
-  const closePopup = (popup: keyof typeof activePopups.value) => {
-    activePopups.value[popup] = false
   }
 
   const deleteCompletedTasks = async () => {
@@ -554,6 +504,60 @@ export const useTaskStore = defineStore('tasks', () => {
     }
   }
 
+  // 定时器方法
+  const restoreTimers = async (tasksList: Task[]) => {
+    const timerTasks = tasksList.filter(t => t.timerType && t.timerType !== '' && t.timerValue > 0)
+    if (timerTasks.length === 0) return
+
+    const currentTime = Math.floor(Date.now() / 1000)
+    const promises: Promise<void>[] = []
+
+    for (const task of timerTasks) {
+      if (currentTime >= task.timerValue) {
+        task.timerRemaining = 0
+        task.timerType = ''
+        task.timerValue = 0
+        task.status = true
+        task.color = '#000000'
+        task.bold = false
+        promises.push(
+          invoke('update_task_cmd', {
+            id: task.id,
+            text: task.text,
+            status: true,
+            color: '#000000',
+            bold: false,
+            timerType: '',
+            timerValue: 0,
+            timerRemaining: 0
+          }).then(() => {})
+        )
+      } else {
+        const remainingSeconds = task.timerValue - currentTime
+        task.timerRemaining = remainingSeconds
+        promises.push(
+          invoke('update_task_cmd', {
+            id: task.id,
+            text: task.text,
+            status: task.status,
+            color: task.color,
+            bold: task.bold,
+            timerType: task.timerType,
+            timerValue: task.timerValue,
+            timerRemaining: remainingSeconds
+          }).then(() => {
+            return invoke('restore_scheduled_timer_cmd', {
+              taskId: task.id,
+              targetTimestamp: task.timerValue
+            }).then(() => {})
+          })
+        )
+      }
+    }
+
+    await Promise.all(promises)
+  }
+
   const startCountdown = async (taskId: number, minutes: number) => {
     const validation = validateCountdownMinutes(minutes.toString())
     if (!validation.valid) {
@@ -562,11 +566,13 @@ export const useTaskStore = defineStore('tasks', () => {
     }
 
     try {
-      await invoke('start_countdown_cmd', { taskId, minutes })
+      // 调用后端启动倒计时，获取后端计算的目标时间戳
+      const result = await invoke<string>('start_countdown_cmd', { taskId, minutes })
+      const targetTimestamp = parseInt(result)
+      
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
         task.timerType = 'countdown'
-        const targetTimestamp = Math.floor(Date.now() / 1000) + minutes * 60
         task.timerValue = targetTimestamp
         task.timerRemaining = minutes * 60
         task.status = false
@@ -591,12 +597,12 @@ export const useTaskStore = defineStore('tasks', () => {
 
   const startScheduledTimer = async (taskId: number, targetTimestamp: number) => {
     try {
-      const result = await invoke('start_scheduled_timer_cmd', { taskId, targetTimestamp: targetTimestamp })
+      const result = await invoke('start_scheduled_timer_cmd', { taskId, targetTimestamp })
       if (result === '目标时间必须大于当前时间') {
         showErrorAlert('输入错误', '目标时间不能早于当前时间')
         return
       }
-      
+
       const task = tasks.value.find(t => t.id === taskId)
       if (task) {
         task.timerType = 'scheduled'
@@ -625,7 +631,7 @@ export const useTaskStore = defineStore('tasks', () => {
 
   const stopTimer = async (taskId: number) => {
     try {
-      await invoke('stop_timer_cmd', { taskId: taskId })
+      await invoke('stop_timer_cmd', { taskId })
       timerStates.value.delete(taskId)
     } catch (error) {
       console.error('Failed to stop timer:', error)
@@ -699,6 +705,9 @@ export const useTaskStore = defineStore('tasks', () => {
   const handleTimerExpired = async (event: { payload: { task_id: number; timerType: string } }) => {
     const { task_id, timerType } = event.payload
     timerStates.value.delete(task_id)
+    
+    // 停止后端定时器
+    await stopTimer(task_id)
 
     const task = tasks.value.find(t => t.id === task_id)
     if (task) {
@@ -714,11 +723,16 @@ export const useTaskStore = defineStore('tasks', () => {
         timerRemaining: 0
       })
 
+      // 计算原始持续时间：目标时间戳 - 创建时间 = 任务创建时设定的持续时间
+      const createdAt = new Date(task.created_at).getTime() / 1000
+      const duration = task.timerValue - createdAt
+      
       expiredTask.value = {
         task_id,
         task_title: task.text,
         timerType,
-        lastTimerValue: task.timerValue
+        lastTimerValue: task.timerValue,
+        duration
       }
       openPopup('countdownAlert')
 
@@ -737,6 +751,16 @@ export const useTaskStore = defineStore('tasks', () => {
     closePopup('countdownAlert')
   }
 
+  const reStartTimer = async (minutes: number = 25) => {
+    if (!expiredTask.value) return
+
+    const { task_id } = expiredTask.value
+    // 无论是定时任务还是限时任务，重新计时后都变成限时任务
+    await startCountdown(task_id, minutes)
+    resetExpiredTask()
+  }
+
+  // 回收站方法
   const moveToTrash = async (id: number) => {
     try {
       await invoke('stop_timer_cmd', { taskId: id })
@@ -803,18 +827,16 @@ export const useTaskStore = defineStore('tasks', () => {
     trashWindowVisible.value = false
   }
 
-  // ============ 清理电脑 ============
+  // 清理电脑方法
   const formatBytes = (bytes: number): string => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
   }
 
   const startCleanComputer = async () => {
-    if (isCleaningComputer.value) {
-      return
-    }
     isCleaningComputer.value = true
     cleanComputerStats.value = {
       scanned: 0,
@@ -830,12 +852,10 @@ export const useTaskStore = defineStore('tasks', () => {
     try {
       await invoke('clean_computer_cmd')
     } catch (error: any) {
-      console.error('[清理电脑] 启动失败:', error)
+      console.error('[清理电脑] 失败:', error)
+      showErrorAlert('清理失败', '清理电脑失败:\n' + (error?.message || error?.toString() || '未知错误'))
       isCleaningComputer.value = false
-      showErrorAlert(
-        '清理失败',
-        '启动清理失败:\n' + (error?.message || error?.toString() || '未知错误')
-      )
+      cleanComputerStats.value.isRunning = false
     }
   }
 
@@ -843,25 +863,15 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanComputerStats.value = event.payload
   }
 
-  const handleCleanComputerDone = (event: { payload: CleanStats }) => {
-    const stats = event.payload
-    cleanComputerStats.value = stats
+  const handleCleanComputerDone = (event: { payload: { success: boolean; message: string; totalFreedBytes: number; categories: CategoryResult[] } }) => {
+    const { success, message, totalFreedBytes, categories } = event.payload
     isCleaningComputer.value = false
-
-    const categoryLines = stats.categories
-      .map(c => `• ${c.name}: 删除 ${c.deleted} 个，释放 ${formatBytes(c.freedBytes)}`)
-      .join('\n')
-
-    const message =
-      `扫描 ${stats.scanned} 个文件\n` +
-      `已删除 ${stats.deleted} 个，跳过 ${stats.skipped} 个（占用/权限）\n` +
-      `共释放 ${formatBytes(stats.freedBytes)} 磁盘空间\n\n` +
-      `各类别清理情况：\n${categoryLines || '• 无可清理内容'}`
+    cleanComputerStats.value.isRunning = false
 
     cleanComputerNotice.value = {
       show: true,
-      title: '清理完成',
-      message
+      title: success ? '清理完成' : '清理失败',
+      message: `${message}\n\n释放空间: ${formatBytes(totalFreedBytes)}\n\n分类统计:\n${categories.map(c => `• ${c.name}: 删除 ${c.deleted} 个，跳过 ${c.skipped} 个`).join('\n')}`
     }
   }
 
@@ -869,40 +879,37 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanComputerNotice.value = { show: false, title: '', message: '' }
   }
 
-  const reStartTimer = async () => {
-    if (!expiredTask.value) return
-
-    const { task_id, timerType, lastTimerValue } = expiredTask.value
-    if (timerType === 'countdown') {
-      const minutes = Math.floor(lastTimerValue / 60)
-      if (minutes > 0) {
-        await startCountdown(task_id, minutes)
-      }
-    } else if (timerType === 'scheduled') {
-      const currentTime = Math.floor(Date.now() / 1000)
-      const newTarget = currentTime + lastTimerValue
-      await startScheduledTimer(task_id, newTarget)
-    }
-    resetExpiredTask()
-  }
-
   return {
+    // 任务状态
     tasks,
     isWindowLocked,
-    confirmDialog,
-    errorAlert,
-    activePopups,
     contextMenu,
     mainMenu,
     isAnalyzingDesktop,
     isCleaningDuplicates,
-    timerStates,
-    expiredTask,
-    deletedTasks,
-    trashWindowVisible,
-    isMuted,
     incompleteTasks,
     completedTasks,
+    
+    // 定时器状态
+    timerStates,
+    expiredTask,
+    isMuted,
+    
+    // 回收站状态
+    deletedTasks,
+    trashWindowVisible,
+    
+    // 弹窗状态
+    confirmDialog,
+    errorAlert,
+    activePopups,
+    
+    // 清理电脑状态
+    isCleaningComputer,
+    cleanComputerStats,
+    cleanComputerNotice,
+    
+    // 任务方法
     loadTasks,
     addTask,
     removeTask,
@@ -910,12 +917,6 @@ export const useTaskStore = defineStore('tasks', () => {
     markIncomplete,
     resetTask,
     toggleWindowLock,
-    showConfirm,
-    hideConfirm,
-    showErrorAlert,
-    hideErrorAlert,
-    openPopup,
-    closePopup,
     deleteCompletedTasks,
     deleteAllTasks,
     reorderTasks,
@@ -928,19 +929,25 @@ export const useTaskStore = defineStore('tasks', () => {
     updateTaskBold,
     resetTaskStyle,
     setTaskTimer,
+    validateCountdownMinutes,
+    validateScheduledTime,
+    parseScheduledTime,
+    
+    // 定时器方法
+    restoreTimers,
     startCountdown,
     startScheduledTimer,
     stopTimer,
     getTimerStatus,
     calibrateTimer,
     calibrateAllTimers,
-    validateCountdownMinutes,
-    validateScheduledTime,
-    parseScheduledTime,
     handleTimerUpdate,
     handleTimerExpired,
     resetExpiredTask,
     reStartTimer,
+    toggleMute,
+    
+    // 回收站方法
     moveToTrash,
     loadDeletedTasks,
     restoreFromTrash,
@@ -948,14 +955,21 @@ export const useTaskStore = defineStore('tasks', () => {
     clearTrashByPeriod,
     openTrashWindow,
     closeTrashWindow,
-    isCleaningComputer,
-    cleanComputerStats,
-    cleanComputerNotice,
+    
+    // 弹窗方法
+    showErrorAlert,
+    hideErrorAlert,
+    handleDbError,
+    showConfirm,
+    hideConfirm,
+    openPopup,
+    closePopup,
+    
+    // 清理电脑方法
+    formatBytes,
     startCleanComputer,
     handleCleanComputerProgress,
     handleCleanComputerDone,
-    hideCleanComputerNotice,
-    formatBytes,
-    toggleMute
+    hideCleanComputerNotice
   }
 })
