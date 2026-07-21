@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { open } from '@tauri-apps/plugin-dialog'
 
 interface DownloadsItem {
   name: string
@@ -30,6 +31,23 @@ const showConflictDialog = ref(false)
 const conflictList = ref<Array<{fileName: string, sourcePath: string, targetFolder: string, targetPath: string}>>([])
 let conflictResolver: ((strategy: 'Overwrite' | 'Rename' | 'Skip' | 'Cancel') => void) | null = null
 const customPath = ref<string | null>(null)
+
+const selectFolder = async () => {
+  try {
+    const selected = await open({
+      directory: true,
+      multiple: false,
+      title: '选择要分析的文件夹',
+    })
+    if (selected) {
+      customPath.value = typeof selected === 'string' ? selected : selected[0]
+      await reanalyze()
+    }
+  } catch (e: any) {
+    console.error('[文件夹分析] 选择文件夹失败:', e)
+    errorMsg.value = '选择文件夹失败: ' + (e?.message || e?.toString() || '未知错误')
+  }
+}
 
 const categoryMeta: Record<string, { label: string; color: string; bg: string }> = {
   exe: { label: '可执行文件', color: '#DC2626', bg: '#FEF2F2' },
@@ -189,8 +207,12 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-if="analysis" class="paths">
-        <div><strong>下载目录：</strong><code>{{ analysis.downloadsPath }}</code></div>
-      </div>
+        <div class="path-row">
+          <strong>分析目录：</strong>
+          <code>{{ analysis.downloadsPath }}</code>
+        </div>
+        <button class="btn btn-sm btn-default path-btn" @click="selectFolder">选择文件夹</button>
+    </div>
     </div>
 
     <div v-if="errorMsg" class="error-banner">
@@ -358,10 +380,31 @@ onUnmounted(() => {
   background: #1d4ed8;
 }
 
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
 .paths {
   margin-top: 8px;
   font-size: 11px;
   color: #6b7280;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.path-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.path-btn {
+  flex-shrink: 0;
 }
 
 .paths code {

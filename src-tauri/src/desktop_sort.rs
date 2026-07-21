@@ -1816,11 +1816,11 @@ pub fn setup_downloads_analyze_window<R: Runtime>(app: &tauri::AppHandle<R>) -> 
 }
 
 #[tauri::command]
-pub fn analyze_downloads_cmd<R: Runtime>(window: tauri::Window<R>) -> Result<bool, String> {
+pub fn analyze_downloads_cmd<R: Runtime>(window: tauri::Window<R>, custom_path: Option<String>) -> Result<bool, String> {
     let app = window.app_handle();
-    println!("[文件夹分析] analyze_downloads_cmd 命令被调用");
+    println!("[文件夹分析] analyze_downloads_cmd 命令被调用, custom_path: {:?}", custom_path);
 
-    let analysis = analyze_downloads(None)?;
+    let analysis = analyze_downloads(custom_path)?;
 
     println!("[文件夹分析] 分析完成，共 {} 项 (可执行文件:{}, 图片:{}, 压缩包:{}, 其他:{})",
         analysis.items.len(),
