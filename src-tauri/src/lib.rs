@@ -479,7 +479,7 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; background: #000; }}
 </style>
 </head>
 <body>
-<div class="welcome-container" id="welcomeContainer">
+<div class="welcome-container">
   <div class="progress-section">
     <div class="progress-text">程序加载中......</div>
     <div class="progress-bar-container">
@@ -489,14 +489,9 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; background: #000; }}
 </div>
 <script>
 const progressBar = document.getElementById('progressBar');
-window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
-function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
-if (window.__TAURI_IPC__) {{
-  try {{
-    window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
-    window.__TAURI_IPC__.listen('close_welcome', () => {{ window.close(); }});
-  }} catch (e) {{ setTimeout(() => window.close(), 5000); }}
-}} else {{ setTimeout(() => window.close(), 5000); }}
+function updateProgress(percent) {{
+  progressBar.style.width = percent + '%';
+}}
 updateProgress(10);
 </script>
 </body>
@@ -523,24 +518,36 @@ updateProgress(10);
                 .visible(true)
                 .build();
 
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                std::thread::sleep(std::time::Duration::from_millis(300));
 
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 20 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '20%';");
+                }
 
                 let _ = setup_context_menu_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 35 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '35%';");
+                }
 
                 let _ = setup_trash_context_menu_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 50 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '50%';");
+                }
 
                 let _ = setup_snap_line_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 65 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '65%';");
+                }
 
                 let _ = setup_desktop_analyze_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 80 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '80%';");
+                }
 
                 let _ = setup_downloads_analyze_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 90 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '90%';");
+                }
 
                 let mut wait_count = 0;
                 while !APP_READY.load(Ordering::SeqCst) && wait_count < 500 {
@@ -548,9 +555,14 @@ updateProgress(10);
                     wait_count += 1;
                 }
 
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 100 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width = '100%';");
+                }
                 std::thread::sleep(std::time::Duration::from_secs(2));
-                let _ = app_handle.emit_to("welcome", "close_welcome", serde_json::json!({}));
+                
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.close();
+                }
             });
 
             Ok(())
