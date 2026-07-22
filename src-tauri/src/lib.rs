@@ -69,6 +69,14 @@ fn close_welcome_window(app_handle: tauri::AppHandle) -> Result<String, String> 
 }
 
 #[tauri::command]
+fn hide_welcome_window(app_handle: tauri::AppHandle) -> Result<String, String> {
+    if let Some(w) = app_handle.get_webview_window("welcome") {
+        let _ = w.hide();
+    }
+    Ok("欢迎窗口已隐藏".to_string())
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -276,6 +284,7 @@ pub fn run() {
             get_clean_computer_status,
             empty_recycle_bin_cmd,
             close_welcome_window,
+            hide_welcome_window,
         ])
         .setup(|app| {
             let manager = app.state::<Arc<WindowManager>>();
@@ -424,6 +433,11 @@ window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
 function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
 function startFadeOut() {{
   welcomeContainer.classList.add('fade-out');
+  // 立即通知 Rust 隐藏窗口，避免淡出后显示黑色背景
+  if (window.__TAURI_IPC__) {{
+    try {{ window.__TAURI_IPC__.invoke('hide_welcome_window'); }}
+    catch(e) {{}}
+  }}
 }}
 if (window.__TAURI_IPC__) {{
   try {{
@@ -489,14 +503,15 @@ updateProgress(10);
                 // 主窗口已加载完成，通知 JS 进度条到 100%
                 let _ = app_handle.emit_to("welcome", "app_ready", serde_json::json!({}));
                 
-                // 等待 3 秒（进度条维持时间）+ 0.8 秒（淡出动画）= 3.8 秒后关闭窗口
-                // 完全由 Rust 控制关闭时机，避免 JS IPC 通信问题
+                // JS 收到 app_ready 后：
+                // 1. 等待 3 秒（进度条维持时间）
+                // 2. 开始淡出动画，同时通知 Rust 隐藏窗口
+                // 3. 淡出动画持续 0.8 秒
+                // 总共等待 3.8 秒后关闭窗口
                 std::thread::sleep(std::time::Duration::from_millis(3800));
                 
-                // 先隐藏窗口再关闭，避免关闭时出现黑色闪烁
+                // JS 已经通知隐藏窗口，这里直接关闭即可
                 if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.hide();
-                    std::thread::sleep(std::time::Duration::from_millis(100));
                     let _ = w.close();
                 }
             });
