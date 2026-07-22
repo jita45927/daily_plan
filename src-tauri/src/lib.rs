@@ -8,7 +8,6 @@ mod clean_computer;
 mod recycle_bin;
 
 use std::sync::Arc;
-use base64::Engine;
 
 use tauri::{Manager, Emitter};
 use tauri_plugin_dialog;
@@ -317,97 +316,12 @@ pub fn run() {
             let app_handle = app.handle().clone();
             
             std::thread::spawn(move || {
-                // 使用 include_bytes! 宏在编译时将图片嵌入二进制
-                let welcome_image_data = include_bytes!("../../public/welcome.jpg");
-                let base64_image = base64::engine::general_purpose::STANDARD.encode(welcome_image_data);
-                
-                // 生成完整的 HTML 内容
-                let html_content = format!(
-                    r#"<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>欢迎</title>
-<style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; }}
-.welcome-container {{
-  width: 100%;
-  height: 100%;
-  background-image: url(data:image/jpeg;base64,{});
-  background-size: cover;
-  background-position: center;
-  position: relative;
-}}
-.progress-section {{
-  position: absolute;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 300px;
-}}
-.progress-text {{
-  text-align: center;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  margin-bottom: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}}
-.progress-bar-container {{
-  width: 100%;
-  height: 4px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 2px;
-  overflow: hidden;
-}}
-.progress-bar {{
-  height: 100%;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 2px;
-  width: 0%;
-  transition: width 0.3s ease;
-}}
-</style>
-</head>
-<body>
-<div class="welcome-container">
-  <div class="progress-section">
-    <div class="progress-text">程序加载中......</div>
-    <div class="progress-bar-container">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
-  </div>
-</div>
-<script>
-const progressBar = document.getElementById('progressBar');
-window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
-function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
-if (window.__TAURI_IPC__) {{
-  try {{
-    window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
-    window.__TAURI_IPC__.listen('app_ready', () => {{ updateProgress(100); }});
-  }} catch (e) {{}}
-}}
-updateProgress(10);
-</script>
-</body>
-</html>"#,
-                    base64_image
-                );
-                
-                // 将 HTML 写入临时文件
-                let temp_path = std::env::temp_dir().join("daily_plan_welcome.html");
-                let _ = std::fs::write(&temp_path, &html_content);
-                
-                // 构建 file:// 协议路径
-                let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
-                
-                // 创建欢迎窗口
+                // 创建欢迎窗口，使用 Tauri 的资源路径
+                // 开发模式下从 dev server 加载，发布模式下从打包后的资源加载
                 let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
-                    tauri::WebviewUrl::External(file_url.parse().unwrap())
+                    tauri::WebviewUrl::App("welcome.html".into())
                 )
                 .title("欢迎")
                 .inner_size(800.0, 600.0)
@@ -421,22 +335,35 @@ updateProgress(10);
 
                 std::thread::sleep(std::time::Duration::from_millis(200));
 
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 20 }));
+                // 使用 eval 直接执行 JS 更新进度条（避免依赖 Tauri IPC 桥）
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='20%'");
+                }
 
                 let _ = setup_context_menu_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 35 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='35%'");
+                }
 
                 let _ = setup_trash_context_menu_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 50 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='50%'");
+                }
 
                 let _ = setup_snap_line_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 65 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='65%'");
+                }
 
                 let _ = setup_desktop_analyze_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 80 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='80%'");
+                }
 
                 let _ = setup_downloads_analyze_window(&app_handle);
-                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 90 }));
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='90%'");
+                }
 
                 // 等待主窗口加载完成（APP_READY 由前端 on_app_ready 命令设置）
                 let mut wait_count = 0;
@@ -445,13 +372,19 @@ updateProgress(10);
                     wait_count += 1;
                 }
                 
-                // 主窗口已加载完成，通知 JS 进度条到 100%
-                let _ = app_handle.emit_to("welcome", "app_ready", serde_json::json!({}));
+                // 主窗口已加载完成，进度条到 100%
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.eval("document.getElementById('progressBar').style.width='100%'");
+                }
                 
                 // 等待 3 秒（进度条维持时间）
                 std::thread::sleep(std::time::Duration::from_millis(3000));
                 
-                // 直接关闭窗口（不再使用淡出动画，避免黑色窗口残留）
+                // 先隐藏窗口，再等待 200ms，最后关闭窗口（避免黑色背景残留）
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.hide();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.close();
                 }
