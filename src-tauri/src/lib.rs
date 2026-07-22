@@ -53,9 +53,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static APP_READY: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
-fn on_app_ready(app_handle: tauri::AppHandle) -> Result<String, String> {
+fn on_app_ready(_app_handle: tauri::AppHandle) -> Result<String, String> {
     APP_READY.store(true, Ordering::SeqCst);
-    let _ = app_handle.emit_to("welcome", "app_ready", serde_json::json!({}));
     Ok("主窗口加载完成".to_string())
 }
 
@@ -310,12 +309,21 @@ pub fn run() {
             // 初始化时自动贴边对齐
             manager.init_snap(&window);
 
-            // 主窗口先显示
-            window.show().ok();
-
+            let main_window = window.clone();
             let app_handle = app.handle().clone();
             
             std::thread::spawn(move || {
+                // 创建日志文件
+                let log_path = std::env::temp_dir().join("daily_plan_welcome.log");
+                let _ = std::fs::write(&log_path, "");
+                
+                let log = |msg: &str| {
+                    let _ = std::fs::write(&log_path, format!("{}\n{}", 
+                        std::fs::read_to_string(&log_path).unwrap_or_default(), msg));
+                };
+                
+                log("[欢迎画面] 开始创建欢迎窗口");
+                
                 // 创建欢迎窗口，使用 Tauri 的资源路径
                 // 开发模式下从 dev server 加载，发布模式下从打包后的资源加载
                 let _ = tauri::WebviewWindowBuilder::new(
@@ -332,13 +340,23 @@ pub fn run() {
                 .background_color(tauri::window::Color(255, 255, 255, 255))
                 .visible(true)
                 .build();
+                
+                log("[欢迎画面] 欢迎窗口创建完成");
 
-                std::thread::sleep(std::time::Duration::from_millis(200));
+                // 通知主窗口欢迎窗口已就绪，可以开始设置 APP_READY
+                let _ = app_handle.emit("welcome_ready", serde_json::json!({}));
+                
+                // 增加初始等待时间，确保页面加载完成
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                log("[欢迎画面] 页面加载等待完成");
 
                 // 使用 eval 直接执行 JS 更新进度条（避免依赖 Tauri IPC 桥）
                 if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width='20%'");
+                    if let Err(e) = w.eval("document.getElementById('progressBar').style.width='20%'") {
+                        log(&format!("[欢迎画面] eval 20% 失败: {:?}", e));
+                    }
                 }
+                log("[欢迎画面] 进度条更新到 20%");
 
                 let _ = setup_context_menu_window(&app_handle);
                 if let Some(w) = app_handle.get_webview_window("welcome") {
@@ -366,28 +384,33 @@ pub fn run() {
                 }
 
                 // 等待主窗口加载完成（APP_READY 由前端 on_app_ready 命令设置）
+                log("[欢迎画面] 等待主窗口加载完成");
                 let mut wait_count = 0;
                 while !APP_READY.load(Ordering::SeqCst) && wait_count < 300 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     wait_count += 1;
                 }
+                log(&format!("[欢迎画面] 主窗口加载完成 (等待次数: {})", wait_count));
                 
-                // 主窗口已加载完成，进度条到 100%
+                // 主窗口已加载完成，显示主窗口（此时 Vue 已经渲染完成）
+                main_window.show().ok();
+                log("[欢迎画面] 主窗口已显示");
+                
+                // 进度条到 100%
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.eval("document.getElementById('progressBar').style.width='100%'");
                 }
+                log("[欢迎画面] 进度条更新到 100%");
                 
                 // 等待 3 秒（进度条维持时间）
                 std::thread::sleep(std::time::Duration::from_millis(3000));
+                log("[欢迎画面] 3秒等待完成，开始销毁窗口");
                 
-                // 先隐藏窗口，再等待 200ms，最后关闭窗口（避免黑色背景残留）
+                // 使用 destroy 立即销毁窗口，避免任何视觉残留
                 if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.hide();
+                    let _ = w.destroy();
                 }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.close();
-                }
+                log("[欢迎画面] 欢迎窗口已销毁");
             });
 
             Ok(())

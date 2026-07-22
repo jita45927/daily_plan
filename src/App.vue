@@ -223,7 +223,15 @@ const handleTrashContextMenuCommand = async (event: { payload: TrashContextMenuC
 onMounted(async () => {
   await taskStore.loadTasks()
   
-  invoke('on_app_ready').catch(() => {})
+  // 等待欢迎窗口就绪后再通知后端
+  await listen('welcome_ready', () => {
+    invoke('on_app_ready').catch(() => {})
+  })
+  
+  // 如果没有欢迎窗口（开发模式可能直接启动），3秒后自动通知
+  setTimeout(() => {
+    invoke('on_app_ready').catch(() => {})
+  }, 3000)
 
   await listen('timer_update', taskStore.handleTimerUpdate)
   await listen('timer_expired', taskStore.handleTimerExpired)
