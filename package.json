@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc && vite build",
+    "generate-welcome": "node scripts/generate-welcome.js",
+    "build": "node scripts/generate-welcome.js && vue-tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },

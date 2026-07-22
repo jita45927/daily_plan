@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, nextTick } from 'vue'
 import { useTaskStore } from './stores/taskStore'
 import { listen } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
@@ -223,19 +223,11 @@ const handleTrashContextMenuCommand = async (event: { payload: TrashContextMenuC
 onMounted(async () => {
   await taskStore.loadTasks()
   
-  let readyCalled = false
-  const callReady = () => {
-    if (!readyCalled) {
-      readyCalled = true
-      invoke('on_app_ready').catch(() => {})
-    }
-  }
-  
-  // 等待欢迎窗口就绪后再通知后端
-  await listen('welcome_ready', callReady)
-  
-  // 如果没有欢迎窗口（开发模式可能直接启动），3秒后自动通知
-  setTimeout(callReady, 3000)
+  // 使用 nextTick + requestAnimationFrame 确保 DOM 绘制完成后再通知后端
+  await nextTick()
+  requestAnimationFrame(() => {
+    invoke('on_app_ready').catch(() => {})
+  })
 
   await listen('timer_update', taskStore.handleTimerUpdate)
   await listen('timer_expired', taskStore.handleTimerExpired)

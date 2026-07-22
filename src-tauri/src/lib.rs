@@ -8,9 +8,8 @@ mod clean_computer;
 mod recycle_bin;
 
 use std::sync::Arc;
-use base64::Engine;
 
-use tauri::{Manager, Emitter};
+use tauri::Manager;
 use tauri_plugin_dialog;
 use db::{reinitialize_db, save_db_window_config,
     insert_task_cmd, get_all_tasks_cmd, update_task_cmd, delete_task_cmd,
@@ -325,86 +324,11 @@ pub fn run() {
                 
                 log("[欢迎画面] 开始创建欢迎窗口");
                 
-                // 使用 include_bytes! 宏在编译时将图片嵌入二进制
-                let welcome_image_data = include_bytes!("../../public/welcome.jpg");
-                let base64_image = base64::engine::general_purpose::STANDARD.encode(welcome_image_data);
-                
-                // 生成完整的 HTML 内容（包含嵌入的图片）
-                let html_content = format!(
-                    r#"<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>欢迎</title>
-<style>
-* {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; }}
-.welcome-container {{
-  width: 100%;
-  height: 100%;
-  background-image: url(data:image/jpeg;base64,{});
-  background-size: cover;
-  background-position: center;
-  position: relative;
-}}
-.progress-section {{
-  position: absolute;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 300px;
-}}
-.progress-text {{
-  text-align: center;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  margin-bottom: 8px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-}}
-.progress-bar-container {{
-  width: 100%;
-  height: 4px;
-  background: rgba(0, 0, 0, 0.3);
-  border-radius: 2px;
-  overflow: hidden;
-}}
-.progress-bar {{
-  height: 100%;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 2px;
-  width: 0%;
-  transition: width 0.3s ease;
-}}
-</style>
-</head>
-<body>
-<div class="welcome-container">
-  <div class="progress-section">
-    <div class="progress-text">程序加载中......</div>
-    <div class="progress-bar-container">
-      <div class="progress-bar" id="progressBar"></div>
-    </div>
-  </div>
-</div>
-<script>
-const progressBar = document.getElementById('progressBar');
-progressBar.style.width = '10%';
-</script>
-</body>
-</html>"#,
-                    base64_image
-                );
-                
-                // 使用 data URL 直接加载 HTML（避免文件系统依赖和安全策略问题）
-                let html_base64 = base64::engine::general_purpose::STANDARD.encode(html_content.as_bytes());
-                let data_url = format!("data:text/html;base64,{}", html_base64);
-                log("[欢迎画面] data URL 生成完成");
-                
+                // 使用 WebviewUrl::App 加载欢迎页面（图片已在构建时嵌入 HTML）
                 let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
-                    tauri::WebviewUrl::External(data_url.parse().unwrap())
+                    tauri::WebviewUrl::App("welcome.html".into())
                 )
                 .title("欢迎")
                 .inner_size(800.0, 600.0)
@@ -418,9 +342,6 @@ progressBar.style.width = '10%';
                 
                 log("[欢迎画面] 欢迎窗口创建完成");
 
-                // 通知主窗口欢迎窗口已就绪，可以开始设置 APP_READY
-                let _ = app_handle.emit("welcome_ready", serde_json::json!({}));
-                
                 // 等待页面加载
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 log("[欢迎画面] 页面加载等待完成");
