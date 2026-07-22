@@ -61,6 +61,14 @@ fn on_app_ready(app_handle: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn close_welcome_window(app_handle: tauri::AppHandle) -> Result<String, String> {
+    if let Some(w) = app_handle.get_webview_window("welcome") {
+        let _ = w.close();
+    }
+    Ok("欢迎窗口已关闭".to_string())
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
@@ -267,6 +275,7 @@ pub fn run() {
             clean_computer_cmd,
             get_clean_computer_status,
             empty_recycle_bin_cmd,
+            close_welcome_window,
         ])
         .setup(|app| {
             let manager = app.state::<Arc<WindowManager>>();
@@ -314,8 +323,12 @@ pub fn run() {
                     Err(_) => std::env::current_dir().unwrap_or_default(),
                 };
                 
-                // 尝试多个可能的图片路径（安装后在 resources 目录）
-                let mut image_path = exe_dir.join("resources").join("welcome.jpg");
+                // Tauri MSI 安装后资源路径：{exe_dir}/../resources/welcome.jpg
+                // 开发模式下：{cwd}/public/welcome.jpg
+                let mut image_path = exe_dir.parent().unwrap_or(&exe_dir).join("resources").join("welcome.jpg");
+                if !image_path.exists() {
+                    image_path = exe_dir.join("resources").join("welcome.jpg");
+                }
                 if !image_path.exists() {
                     image_path = exe_dir.join("welcome.jpg");
                 }
@@ -371,6 +384,13 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
   transform: translateX(-50%);
   width: 300px;
 }}
+.progress-text {{
+  text-align: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  margin-bottom: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}}
 .progress-bar-container {{
   width: 100%;
   height: 4px;
@@ -390,6 +410,7 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 <body>
 <div class="welcome-container" id="welcomeContainer">
   <div class="progress-section">
+    <div class="progress-text">程序加载中......</div>
     <div class="progress-bar-container">
       <div class="progress-bar" id="progressBar"></div>
     </div>
@@ -400,16 +421,24 @@ const progressBar = document.getElementById('progressBar');
 const welcomeContainer = document.getElementById('welcomeContainer');
 window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
 function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
-function fadeOut() {{
+function closeWelcome() {{
   welcomeContainer.classList.add('fade-out');
-  setTimeout(() => {{ if (window.close) window.close(); }}, 800);
+  setTimeout(() => {{
+    if (window.__TAURI_IPC__) {{
+      try {{ window.__TAURI_IPC__.invoke('close_welcome_window'); }}
+      catch(e) {{}}
+    }}
+  }}, 800);
 }}
 if (window.__TAURI_IPC__) {{
   try {{
     window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
-    window.__TAURI_IPC__.listen('app_ready', () => {{ updateProgress(100); setTimeout(fadeOut, 3000); }});
-  }} catch (e) {{ setTimeout(fadeOut, 3000); }}
-}} else {{ setTimeout(fadeOut, 3000); }}
+    window.__TAURI_IPC__.listen('app_ready', () => {{
+      updateProgress(100);
+      setTimeout(closeWelcome, 3000);
+    }});
+  }} catch (e) {{ setTimeout(closeWelcome, 4000); }}
+}} else {{ setTimeout(closeWelcome, 4000); }}
 updateProgress(10);
 </script>
 </body>
