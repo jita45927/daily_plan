@@ -455,15 +455,15 @@ updateProgress(10);
                 let _ = setup_downloads_analyze_window(&app_handle);
                 let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 90 }));
 
+                // 等待主窗口加载完成（APP_READY 由前端 on_app_ready 命令设置）
                 let mut wait_count = 0;
                 while !APP_READY.load(Ordering::SeqCst) && wait_count < 300 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     wait_count += 1;
                 }
                 
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.close();
-                }
+                // 关闭逻辑完全由前端 JS 控制（收到 app_ready 后等待 3 秒再淡出关闭）
+                // 这里不再主动关闭窗口，避免与 JS 逻辑冲突
             });
 
             Ok(())
