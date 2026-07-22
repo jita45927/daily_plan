@@ -3,8 +3,35 @@ use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use crate::window::WindowManager;
 use super::desktop_analyze::{DesktopAnalyzeManager, DesktopAnalysis, analyze_desktop};
 
+#[cfg(target_os = "windows")]
+use winapi::{
+    shared::windef::HWND,
+    um::winuser::{GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_MINIMIZEBOX, WS_MAXIMIZEBOX},
+};
+
 const ANALYZE_WIN_WIDTH: f64 = 720.0;
 const ANALYZE_WIN_HEIGHT: f64 = 560.0;
+
+#[cfg(target_os = "windows")]
+fn disable_minimize_maximize<R>(window: &tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+    let hwnd = match window.hwnd() {
+        Ok(h) => h.0 as HWND,
+        Err(_) => return,
+    };
+    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) };
+    let new_style = style & !((WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as i32);
+    unsafe { SetWindowLongW(hwnd, GWL_STYLE, new_style) };
+}
+
+#[cfg(not(target_os = "windows"))]
+fn disable_minimize_maximize<R>(_window: &tauri::WebviewWindow<R>)
+where
+    R: tauri::Runtime,
+{
+}
 
 pub fn setup_desktop_analyze_window<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
     println!("[桌面分析] 预创建桌面分析窗口...");
@@ -24,11 +51,14 @@ pub fn setup_desktop_analyze_window<R: Runtime>(app: &tauri::AppHandle<R>) -> Re
     .transparent(false)
     .always_on_top(true)
     .skip_taskbar(false)
-    .resizable(true)
+    .resizable(false)
     .visible(false)
     .position(-3000.0, -3000.0)
     .build()
     .map_err(|e| format!("创建桌面分析窗口失败: {:?}", e))?;
+
+    // 禁用最小化和最大化按钮，只保留关闭按钮
+    disable_minimize_maximize(&analyze_win);
 
     let win_clone = analyze_win.clone();
     analyze_win.on_window_event(move |event| {
