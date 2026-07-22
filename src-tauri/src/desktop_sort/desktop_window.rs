@@ -3,12 +3,6 @@ use tauri::{Emitter, Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 use crate::window::WindowManager;
 use super::desktop_analyze::{DesktopAnalyzeManager, DesktopAnalysis, analyze_desktop};
 
-#[cfg(target_os = "windows")]
-use winapi::{
-    shared::windef::HWND,
-    um::winuser::{GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_MINIMIZEBOX, WS_MAXIMIZEBOX},
-};
-
 const ANALYZE_WIN_WIDTH: f64 = 720.0;
 const ANALYZE_WIN_HEIGHT: f64 = 560.0;
 
@@ -17,13 +11,18 @@ fn disable_minimize_maximize<R>(window: &tauri::WebviewWindow<R>)
 where
     R: tauri::Runtime,
 {
+    use winapi::um::winuser::{GetWindowLongW, SetWindowLongW, GWL_STYLE, WS_MINIMIZEBOX, WS_MAXIMIZEBOX};
+    
     let hwnd = match window.hwnd() {
-        Ok(h) => h.0 as HWND,
+        Ok(h) => h,
         Err(_) => return,
     };
-    let style = unsafe { GetWindowLongW(hwnd, GWL_STYLE) };
-    let new_style = style & !((WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as i32);
-    unsafe { SetWindowLongW(hwnd, GWL_STYLE, new_style) };
+    
+    unsafe {
+        let style = GetWindowLongW(hwnd.0 as *mut _, GWL_STYLE);
+        let new_style = style & !((WS_MINIMIZEBOX | WS_MAXIMIZEBOX) as i32);
+        SetWindowLongW(hwnd.0 as *mut _, GWL_STYLE, new_style);
+    }
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -113,6 +112,7 @@ pub fn show_analyze_window<R: Runtime>(window: tauri::Window<R>) -> Result<bool,
 
     let _ = analyze_win.set_position(tauri::LogicalPosition::new(x, y));
     let _ = analyze_win.show();
+    disable_minimize_maximize(&analyze_win);
     let _ = analyze_win.set_focus();
 
     let win_manager = app.state::<Arc<WindowManager>>();
