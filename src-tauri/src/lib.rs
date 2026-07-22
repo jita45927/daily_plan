@@ -323,18 +323,16 @@ pub fn run() {
                     Err(_) => std::env::current_dir().unwrap_or_default(),
                 };
                 
-                // Tauri MSI 安装后资源路径：{exe_dir}/../resources/welcome.jpg
-                // 开发模式下：{cwd}/public/welcome.jpg
-                let mut image_path = exe_dir.parent().unwrap_or(&exe_dir).join("resources").join("welcome.jpg");
-                if !image_path.exists() {
-                    image_path = exe_dir.join("resources").join("welcome.jpg");
-                }
-                if !image_path.exists() {
-                    image_path = exe_dir.join("welcome.jpg");
-                }
+                // 路径优先级：
+                // 1. 安装后：{exe_dir}/resources/welcome.jpg
+                // 2. 开发模式：{cwd}/public/welcome.jpg
+                let mut image_path = exe_dir.join("resources").join("welcome.jpg");
                 if !image_path.exists() {
                     let cwd = std::env::current_dir().unwrap_or_default();
                     image_path = cwd.join("public").join("welcome.jpg");
+                }
+                if !image_path.exists() {
+                    image_path = exe_dir.join("welcome.jpg");
                 }
                 if !image_path.exists() {
                     let cwd = std::env::current_dir().unwrap_or_default();
@@ -343,6 +341,9 @@ pub fn run() {
                 if !image_path.exists() {
                     let cwd = std::env::current_dir().unwrap_or_default();
                     image_path = cwd.join("dist").join("welcome.jpg");
+                }
+                if !image_path.exists() {
+                    image_path = exe_dir.parent().unwrap_or(&exe_dir).join("resources").join("welcome.jpg");
                 }
                 
                 let base64_image = match std::fs::read(&image_path) {
@@ -454,7 +455,7 @@ updateProgress(10);
                 .center()
                 .decorations(false)
                 .always_on_top(true)
-                .transparent(false)
+                .transparent(true)
                 .background_color(tauri::window::Color(0, 0, 0, 0))
                 .visible(true)
                 .build();
@@ -492,7 +493,10 @@ updateProgress(10);
                 // 完全由 Rust 控制关闭时机，避免 JS IPC 通信问题
                 std::thread::sleep(std::time::Duration::from_millis(3800));
                 
+                // 先隐藏窗口再关闭，避免关闭时出现黑色闪烁
                 if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.hide();
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                     let _ = w.close();
                 }
             });
