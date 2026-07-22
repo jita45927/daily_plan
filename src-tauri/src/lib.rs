@@ -331,17 +331,15 @@ pub fn run() {
 <title>欢迎</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; background: transparent; }}
 .welcome-container {{
   width: 100%;
   height: 100%;
   background-image: url(data:image/jpeg;base64,{});
   background-size: cover;
   background-position: center;
-  transition: opacity 0.8s ease-out;
   position: relative;
 }}
-.welcome-container.fade-out {{ opacity: 0; }}
 .progress-section {{
   position: absolute;
   bottom: 40px;
@@ -383,21 +381,14 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 </div>
 <script>
 const progressBar = document.getElementById('progressBar');
-const welcomeContainer = document.getElementById('welcomeContainer');
 window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
 function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
-function startFadeOut() {{
-  welcomeContainer.classList.add('fade-out');
-}}
 if (window.__TAURI_IPC__) {{
   try {{
     window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
-    window.__TAURI_IPC__.listen('app_ready', () => {{
-      updateProgress(100);
-      setTimeout(startFadeOut, 3000);
-    }});
-  }} catch (e) {{ setTimeout(startFadeOut, 4000); }}
-}} else {{ setTimeout(startFadeOut, 4000); }}
+    window.__TAURI_IPC__.listen('app_ready', () => {{ updateProgress(100); }});
+  }} catch (e) {{}}
+}}
 updateProgress(10);
 </script>
 </body>
@@ -405,14 +396,13 @@ updateProgress(10);
                     base64_image
                 );
                 
-                let temp_path = dirs::cache_dir().unwrap_or_default().join("daily_plan_welcome.html");
-                let _ = std::fs::write(&temp_path, &html_content);
-                
-                let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
+                // 使用 data URL 直接加载 HTML，避免文件系统依赖和协议问题
+                let html_base64 = base64::engine::general_purpose::STANDARD.encode(html_content.as_bytes());
+                let data_url = format!("data:text/html;base64,{}", html_base64);
                 let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
-                    tauri::WebviewUrl::External(file_url.parse().unwrap())
+                    tauri::WebviewUrl::External(data_url.parse().unwrap())
                 )
                 .title("欢迎")
                 .inner_size(800.0, 600.0)
@@ -456,15 +446,7 @@ updateProgress(10);
                 // 等待 3 秒（进度条维持时间）
                 std::thread::sleep(std::time::Duration::from_millis(3000));
                 
-                // 立即隐藏窗口（避免淡出后显示黑色背景），然后等待淡出动画完成
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.hide();
-                }
-                
-                // 等待 0.8 秒（淡出动画时间）
-                std::thread::sleep(std::time::Duration::from_millis(800));
-                
-                // 关闭窗口
+                // 直接关闭窗口（不再使用淡出动画，避免黑色窗口残留）
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.close();
                 }
