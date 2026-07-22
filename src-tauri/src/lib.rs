@@ -341,6 +341,15 @@ pub fn run() {
                 .build();
                 
                 log("[欢迎画面] 欢迎窗口创建完成");
+                
+                // 确保欢迎窗口始终在最顶层
+                let ensure_welcome_on_top = || {
+                    if let Some(w) = app_handle.get_webview_window("welcome") {
+                        let _ = w.set_always_on_top(true);
+                        let _ = w.set_focus();
+                    }
+                };
+                ensure_welcome_on_top();
 
                 // 等待页面加载
                 std::thread::sleep(std::time::Duration::from_millis(500));
@@ -390,9 +399,15 @@ pub fn run() {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 log("[欢迎画面] 等待浏览器绘制完成");
                 
+                // 显示主窗口之前再次确保欢迎窗口在最顶层
+                ensure_welcome_on_top();
+                
                 // 主窗口已加载完成，显示主窗口（此时 Vue 已经渲染完成）
                 main_window.show().ok();
                 log("[欢迎画面] 主窗口已显示");
+                
+                // 主窗口显示后再次确保欢迎窗口在最顶层
+                ensure_welcome_on_top();
                 
                 // 进度条到 100%
                 if let Some(w) = app_handle.get_webview_window("welcome") {
