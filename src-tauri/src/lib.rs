@@ -12,8 +12,7 @@ use base64::Engine;
 
 use tauri::{Manager, Emitter};
 use tauri_plugin_dialog;
-use db::{
-    reinitialize_db, save_db_window_config,
+use db::{reinitialize_db, save_db_window_config,
     insert_task_cmd, get_all_tasks_cmd, update_task_cmd, delete_task_cmd,
     delete_completed_tasks_cmd, delete_all_tasks_cmd, move_task_to_trash_cmd,
     get_deleted_tasks_cmd, restore_task_cmd, permanently_delete_task_cmd,
@@ -309,17 +308,28 @@ pub fn run() {
             let app_handle = app.handle().clone();
             
             std::thread::spawn(move || {
-                let cwd = std::env::current_dir().unwrap_or_default();
+                // 获取可执行文件所在目录（安装后的路径）
+                let exe_dir = match std::env::current_exe() {
+                    Ok(exe_path) => exe_path.parent().unwrap_or(&exe_path).to_path_buf(),
+                    Err(_) => std::env::current_dir().unwrap_or_default(),
+                };
                 
-                let mut image_path = cwd.join("public").join("welcome.jpg");
+                // 尝试多个可能的图片路径（安装后在 resources 目录）
+                let mut image_path = exe_dir.join("resources").join("welcome.jpg");
                 if !image_path.exists() {
+                    image_path = exe_dir.join("welcome.jpg");
+                }
+                if !image_path.exists() {
+                    let cwd = std::env::current_dir().unwrap_or_default();
+                    image_path = cwd.join("public").join("welcome.jpg");
+                }
+                if !image_path.exists() {
+                    let cwd = std::env::current_dir().unwrap_or_default();
                     image_path = cwd.parent().unwrap_or(&cwd).join("public").join("welcome.jpg");
                 }
                 if !image_path.exists() {
+                    let cwd = std::env::current_dir().unwrap_or_default();
                     image_path = cwd.join("dist").join("welcome.jpg");
-                }
-                if !image_path.exists() {
-                    image_path = cwd.parent().unwrap_or(&cwd).join("dist").join("welcome.jpg");
                 }
                 
                 let base64_image = match std::fs::read(&image_path) {
@@ -343,32 +353,28 @@ pub fn run() {
 <title>欢迎</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; background: #000; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 .welcome-container {{
   width: 100%;
   height: 100%;
   background-image: url(data:image/jpeg;base64,{});
   background-size: cover;
   background-position: center;
+  transition: opacity 0.8s ease-out;
   position: relative;
 }}
+.welcome-container.fade-out {{ opacity: 0; }}
 .progress-section {{
   position: absolute;
   bottom: 40px;
   left: 50%;
   transform: translateX(-50%);
   width: 300px;
-  text-align: center;
-}}
-.progress-text {{
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.9);
-  margin-bottom: 8px;
 }}
 .progress-bar-container {{
   width: 100%;
   height: 4px;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.3);
   border-radius: 2px;
   overflow: hidden;
 }}
@@ -377,14 +383,13 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; background: #000; }}
   background: rgba(255, 255, 255, 0.9);
   border-radius: 2px;
   width: 0%;
-  transition: width 0.5s ease;
+  transition: width 0.3s ease;
 }}
 </style>
 </head>
 <body>
-<div class="welcome-container">
+<div class="welcome-container" id="welcomeContainer">
   <div class="progress-section">
-    <div class="progress-text">程序加载中......</div>
     <div class="progress-bar-container">
       <div class="progress-bar" id="progressBar"></div>
     </div>
@@ -392,9 +397,19 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; background: #000; }}
 </div>
 <script>
 const progressBar = document.getElementById('progressBar');
-function updateProgress(percent) {{
-  progressBar.style.width = percent + '%';
+const welcomeContainer = document.getElementById('welcomeContainer');
+window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
+function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
+function fadeOut() {{
+  welcomeContainer.classList.add('fade-out');
+  setTimeout(() => {{ if (window.close) window.close(); }}, 800);
 }}
+if (window.__TAURI_IPC__) {{
+  try {{
+    window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
+    window.__TAURI_IPC__.listen('app_ready', () => {{ updateProgress(100); setTimeout(fadeOut, 3000); }});
+  }} catch (e) {{ setTimeout(fadeOut, 3000); }}
+}} else {{ setTimeout(fadeOut, 3000); }}
 updateProgress(10);
 </script>
 </body>
@@ -421,47 +436,30 @@ updateProgress(10);
                 .visible(true)
                 .build();
 
-                std::thread::sleep(std::time::Duration::from_millis(300));
+                std::thread::sleep(std::time::Duration::from_millis(200));
 
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '20%';");
-                }
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 20 }));
 
                 let _ = setup_context_menu_window(&app_handle);
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '35%';");
-                }
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 35 }));
 
                 let _ = setup_trash_context_menu_window(&app_handle);
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '50%';");
-                }
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 50 }));
 
                 let _ = setup_snap_line_window(&app_handle);
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '65%';");
-                }
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 65 }));
 
                 let _ = setup_desktop_analyze_window(&app_handle);
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '80%';");
-                }
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 80 }));
 
                 let _ = setup_downloads_analyze_window(&app_handle);
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '90%';");
-                }
+                let _ = app_handle.emit_to("welcome", "progress_update", serde_json::json!({ "percent": 90 }));
 
                 let mut wait_count = 0;
-                while !APP_READY.load(Ordering::SeqCst) && wait_count < 500 {
+                while !APP_READY.load(Ordering::SeqCst) && wait_count < 300 {
                     std::thread::sleep(std::time::Duration::from_millis(10));
                     wait_count += 1;
                 }
-
-                if let Some(w) = app_handle.get_webview_window("welcome") {
-                    let _ = w.eval("document.getElementById('progressBar').style.width = '100%';");
-                }
-                std::thread::sleep(std::time::Duration::from_secs(3));
                 
                 if let Some(w) = app_handle.get_webview_window("welcome") {
                     let _ = w.close();

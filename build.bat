@@ -30,8 +30,8 @@ echo.
 
 echo [2/3] 构建 Tauri 应用并生成 MSI 安装包...
 echo.
-cd /d "%TAURI_DIR%"
-cargo tauri build --target x86_64-pc-windows-msvc
+cd /d "%PROJECT_DIR%"
+npm run tauri build
 if %errorlevel% neq 0 (
     echo.
     echo 错误：Tauri 构建失败！
