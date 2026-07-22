@@ -8,6 +8,7 @@ mod clean_computer;
 mod recycle_bin;
 
 use std::sync::Arc;
+use base64::Engine;
 
 use tauri::{Manager, Emitter};
 use tauri_plugin_dialog;
@@ -324,12 +325,86 @@ pub fn run() {
                 
                 log("[欢迎画面] 开始创建欢迎窗口");
                 
-                // 创建欢迎窗口，使用 Tauri 的资源路径
-                // 开发模式下从 dev server 加载，发布模式下从打包后的资源加载
+                // 使用 include_bytes! 宏在编译时将图片嵌入二进制
+                let welcome_image_data = include_bytes!("../../public/welcome.jpg");
+                let base64_image = base64::engine::general_purpose::STANDARD.encode(welcome_image_data);
+                
+                // 生成完整的 HTML 内容（包含嵌入的图片）
+                let html_content = format!(
+                    r#"<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>欢迎</title>
+<style>
+* {{ margin: 0; padding: 0; box-sizing: border-box; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; }}
+.welcome-container {{
+  width: 100%;
+  height: 100%;
+  background-image: url(data:image/jpeg;base64,{});
+  background-size: cover;
+  background-position: center;
+  position: relative;
+}}
+.progress-section {{
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+}}
+.progress-text {{
+  text-align: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  margin-bottom: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}}
+.progress-bar-container {{
+  width: 100%;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}}
+.progress-bar {{
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s ease;
+}}
+</style>
+</head>
+<body>
+<div class="welcome-container">
+  <div class="progress-section">
+    <div class="progress-text">程序加载中......</div>
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+</div>
+<script>
+const progressBar = document.getElementById('progressBar');
+progressBar.style.width = '10%';
+</script>
+</body>
+</html>"#,
+                    base64_image
+                );
+                
+                // 使用 data URL 直接加载 HTML（避免文件系统依赖和安全策略问题）
+                let html_base64 = base64::engine::general_purpose::STANDARD.encode(html_content.as_bytes());
+                let data_url = format!("data:text/html;base64,{}", html_base64);
+                log("[欢迎画面] data URL 生成完成");
+                
                 let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
-                    tauri::WebviewUrl::App("welcome.html".into())
+                    tauri::WebviewUrl::External(data_url.parse().unwrap())
                 )
                 .title("欢迎")
                 .inner_size(800.0, 600.0)
@@ -346,15 +421,13 @@ pub fn run() {
                 // 通知主窗口欢迎窗口已就绪，可以开始设置 APP_READY
                 let _ = app_handle.emit("welcome_ready", serde_json::json!({}));
                 
-                // 增加初始等待时间，确保页面加载完成
+                // 等待页面加载
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 log("[欢迎画面] 页面加载等待完成");
 
-                // 使用 eval 直接执行 JS 更新进度条（避免依赖 Tauri IPC 桥）
+                // 使用 eval 直接执行 JS 更新进度条
                 if let Some(w) = app_handle.get_webview_window("welcome") {
-                    if let Err(e) = w.eval("document.getElementById('progressBar').style.width='20%'") {
-                        log(&format!("[欢迎画面] eval 20% 失败: {:?}", e));
-                    }
+                    let _ = w.eval("document.getElementById('progressBar').style.width='20%'");
                 }
                 log("[欢迎画面] 进度条更新到 20%");
 
@@ -391,6 +464,10 @@ pub fn run() {
                     wait_count += 1;
                 }
                 log(&format!("[欢迎画面] 主窗口加载完成 (等待次数: {})", wait_count));
+                
+                // 等待 500ms 让浏览器完成绘制（避免显示黑色空白窗口）
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                log("[欢迎画面] 等待浏览器绘制完成");
                 
                 // 主窗口已加载完成，显示主窗口（此时 Vue 已经渲染完成）
                 main_window.show().ok();
