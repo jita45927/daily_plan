@@ -399,14 +399,15 @@ pub fn run() {
                 std::thread::sleep(std::time::Duration::from_millis(500));
                 log("[欢迎画面] 等待浏览器绘制完成");
                 
-                // 显示主窗口之前再次确保欢迎窗口在最顶层
-                ensure_welcome_on_top();
+                // 在显示主窗口之前，将主窗口的 always_on_top 设置为 false
+                // 确保欢迎窗口始终在最上层，不会被主窗口遮挡
+                main_window.set_always_on_top(false).ok();
                 
                 // 主窗口已加载完成，显示主窗口（此时 Vue 已经渲染完成）
                 main_window.show().ok();
                 log("[欢迎画面] 主窗口已显示");
                 
-                // 主窗口显示后再次确保欢迎窗口在最顶层
+                // 再次确保欢迎窗口在最顶层
                 ensure_welcome_on_top();
                 
                 // 进度条到 100%
@@ -424,6 +425,9 @@ pub fn run() {
                     let _ = w.destroy();
                 }
                 log("[欢迎画面] 欢迎窗口已销毁");
+                
+                // 欢迎窗口销毁后，恢复主窗口的 always_on_top 设置
+                main_window.set_always_on_top(true).ok();
             });
 
             Ok(())
