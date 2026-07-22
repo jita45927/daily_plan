@@ -421,24 +421,18 @@ const progressBar = document.getElementById('progressBar');
 const welcomeContainer = document.getElementById('welcomeContainer');
 window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
 function updateProgress(percent) {{ progressBar.style.width = percent + '%'; }}
-function closeWelcome() {{
+function startFadeOut() {{
   welcomeContainer.classList.add('fade-out');
-  setTimeout(() => {{
-    if (window.__TAURI_IPC__) {{
-      try {{ window.__TAURI_IPC__.invoke('close_welcome_window'); }}
-      catch(e) {{}}
-    }}
-  }}, 800);
 }}
 if (window.__TAURI_IPC__) {{
   try {{
     window.__TAURI_IPC__.listen('progress_update', (event) => {{ updateProgress(event.payload.percent); }});
     window.__TAURI_IPC__.listen('app_ready', () => {{
       updateProgress(100);
-      setTimeout(closeWelcome, 3000);
+      setTimeout(startFadeOut, 3000);
     }});
-  }} catch (e) {{ setTimeout(closeWelcome, 4000); }}
-}} else {{ setTimeout(closeWelcome, 4000); }}
+  }} catch (e) {{ setTimeout(startFadeOut, 4000); }}
+}} else {{ setTimeout(startFadeOut, 4000); }}
 updateProgress(10);
 </script>
 </body>
@@ -491,8 +485,16 @@ updateProgress(10);
                     wait_count += 1;
                 }
                 
-                // 关闭逻辑完全由前端 JS 控制（收到 app_ready 后等待 3 秒再淡出关闭）
-                // 这里不再主动关闭窗口，避免与 JS 逻辑冲突
+                // 主窗口已加载完成，通知 JS 进度条到 100%
+                let _ = app_handle.emit_to("welcome", "app_ready", serde_json::json!({}));
+                
+                // 等待 3 秒（进度条维持时间）+ 0.8 秒（淡出动画）= 3.8 秒后关闭窗口
+                // 完全由 Rust 控制关闭时机，避免 JS IPC 通信问题
+                std::thread::sleep(std::time::Duration::from_millis(3800));
+                
+                if let Some(w) = app_handle.get_webview_window("welcome") {
+                    let _ = w.close();
+                }
             });
 
             Ok(())
