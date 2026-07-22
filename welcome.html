@@ -6,22 +6,65 @@
 <title>欢迎</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body {
-  width: 100%; height: 100%; overflow: hidden;
-  background: transparent;
+html, body { width: 100%; height: 100%; overflow: hidden; }
+.welcome-container {
+  width: 100%;
+  height: 100%;
+  background-image: url(welcome.jpg);
+  background-size: cover;
+  background-position: center;
+  position: relative;
 }
-img {
-  width: 100%; height: 100%;
-  display: block; object-fit: cover;
+.progress-section {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 300px;
+}
+.progress-text {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  margin-bottom: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+.progress-bar-container {
+  width: 100%;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s ease;
 }
 </style>
 </head>
 <body>
-<img src="http://localhost:5173/welcome.jpg" alt="Welcome" />
+<div class="welcome-container">
+  <div class="progress-section">
+    <div class="progress-text">程序加载中......</div>
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+</div>
 <script>
-  setTimeout(function() {
-    window.close();
-  }, 4000);
+const progressBar = document.getElementById('progressBar');
+window.__TAURI_IPC__ = window.__TAURI_IPC__ || window.__tauri_ipc__;
+function updateProgress(percent) { progressBar.style.width = percent + '%'; }
+if (window.__TAURI_IPC__) {
+  try {
+    window.__TAURI_IPC__.listen('progress_update', (event) => { updateProgress(event.payload.percent); });
+    window.__TAURI_IPC__.listen('app_ready', () => { updateProgress(100); });
+  } catch (e) {}
+}
+updateProgress(10);
 </script>
 </body>
 </html>

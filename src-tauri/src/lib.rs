@@ -318,10 +318,10 @@ pub fn run() {
             
             std::thread::spawn(move || {
                 // 使用 include_bytes! 宏在编译时将图片嵌入二进制
-                // 这样无论开发模式还是发布模式都能找到图片，彻底解决路径问题
                 let welcome_image_data = include_bytes!("../../public/welcome.jpg");
                 let base64_image = base64::engine::general_purpose::STANDARD.encode(welcome_image_data);
                 
+                // 生成完整的 HTML 内容
                 let html_content = format!(
                     r#"<!DOCTYPE html>
 <html lang="zh-CN">
@@ -331,7 +331,7 @@ pub fn run() {
 <title>欢迎</title>
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-html, body {{ width: 100%; height: 100%; overflow: hidden; background: transparent; }}
+html, body {{ width: 100%; height: 100%; overflow: hidden; }}
 .welcome-container {{
   width: 100%;
   height: 100%;
@@ -371,7 +371,7 @@ html, body {{ width: 100%; height: 100%; overflow: hidden; background: transpare
 </style>
 </head>
 <body>
-<div class="welcome-container" id="welcomeContainer">
+<div class="welcome-container">
   <div class="progress-section">
     <div class="progress-text">程序加载中......</div>
     <div class="progress-bar-container">
@@ -396,21 +396,26 @@ updateProgress(10);
                     base64_image
                 );
                 
-                // 使用 data URL 直接加载 HTML，避免文件系统依赖和协议问题
-                let html_base64 = base64::engine::general_purpose::STANDARD.encode(html_content.as_bytes());
-                let data_url = format!("data:text/html;base64,{}", html_base64);
+                // 将 HTML 写入临时文件
+                let temp_path = std::env::temp_dir().join("daily_plan_welcome.html");
+                let _ = std::fs::write(&temp_path, &html_content);
+                
+                // 构建 file:// 协议路径
+                let file_url = format!("file:///{}", temp_path.to_string_lossy().replace('\\', "/"));
+                
+                // 创建欢迎窗口
                 let _ = tauri::WebviewWindowBuilder::new(
                     &app_handle,
                     "welcome",
-                    tauri::WebviewUrl::External(data_url.parse().unwrap())
+                    tauri::WebviewUrl::External(file_url.parse().unwrap())
                 )
                 .title("欢迎")
                 .inner_size(800.0, 600.0)
                 .center()
                 .decorations(false)
                 .always_on_top(true)
-                .transparent(true)
-                .background_color(tauri::window::Color(0, 0, 0, 0))
+                .transparent(false)
+                .background_color(tauri::window::Color(255, 255, 255, 255))
                 .visible(true)
                 .build();
 
