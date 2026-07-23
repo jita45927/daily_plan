@@ -229,16 +229,20 @@ pub fn show_context_menu<R: Runtime>(
     let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("context_menu") {
-        // 先隐藏窗口，确保尺寸更新生效（解决多屏幕切换时尺寸不刷新的问题）
+        // 先隐藏窗口
         let _ = menu_win.hide();
         
-        // 设置尺寸和位置
-        let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
+        // 使用 LogicalSize 设置菜单尺寸（CSS像素），确保不同屏幕分辨率下内容正确渲染
+        let _ = menu_win.set_size(tauri::LogicalSize::new(menu_width, menu_height));
+        
+        // 设置物理位置
         let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
         
-        // 重新加载内容并显示
-        let _ = menu_win.emit("context-menu-reload", ());
+        // 使用 eval_js 强制刷新页面（解决多屏幕切换时内容重复显示的问题）
+        let _ = menu_win.eval("location.reload()");
+        
+        // 显示窗口
         let _ = menu_win.show();
         let _ = menu_win.set_focus();
     }
@@ -359,16 +363,20 @@ pub fn show_trash_context_menu<R: Runtime>(
     let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("trash_context_menu") {
-        // 先隐藏窗口，确保尺寸更新生效（解决多屏幕切换时尺寸不刷新的问题）
+        // 先隐藏窗口
         let _ = menu_win.hide();
         
-        // 设置尺寸和位置
-        let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
+        // 使用 LogicalSize 设置菜单尺寸（CSS像素），确保不同屏幕分辨率下内容正确渲染
+        let _ = menu_win.set_size(tauri::LogicalSize::new(menu_width, menu_height));
+        
+        // 设置物理位置
         let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
         
-        // 重新加载内容并显示
-        let _ = menu_win.emit("trash-context-menu-reload", task_id);
+        // 使用 eval_js 强制刷新页面（解决多屏幕切换时内容重复显示的问题）
+        let _ = menu_win.eval("location.reload()");
+        
+        // 显示窗口
         let _ = menu_win.show();
         let _ = menu_win.set_focus();
     }
