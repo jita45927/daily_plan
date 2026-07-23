@@ -552,6 +552,15 @@ impl WindowManager {
 
         let edges = self.get_all_monitor_edges(&monitors);
         let window_right = window_x + window_width as i32;
+        let window_center_x = window_x + (window_width / 2) as i32;
+
+        // 找到窗口中心所在的屏幕
+        let current_monitor = monitors.iter().find(|m| {
+            let work_area = m.work_area();
+            let wa_pos = work_area.position;
+            let wa_size = work_area.size;
+            window_center_x >= wa_pos.x && window_center_x < wa_pos.x + wa_size.width as i32
+        });
 
         // 优先级 1: 共享边（双屏幕衔接处）
         for edge in &edges {
@@ -560,7 +569,20 @@ impl WindowManager {
                 let dist_right = window_right - edge.position;
 
                 if dist_left.abs() <= self.drag_threshold || dist_right.abs() <= self.drag_threshold {
-                    if dist_left >= dist_right {
+                    // 判断窗口属于哪个屏幕，优先贴到窗口所在屏幕的边缘
+                    let prefer_left_edge = match current_monitor {
+                        Some(m) => {
+                            let wa_pos = m.work_area().position;
+                            // 如果窗口中心在共享边左侧（左屏幕），优先贴左屏幕的右边缘
+                            window_center_x < edge.position
+                        }
+                        None => {
+                            // 无法确定屏幕时，使用距离判断
+                            dist_left >= dist_right
+                        }
+                    };
+
+                    if prefer_left_edge {
                         let new_x = edge.position - window_width as i32;
                         return (new_x, Some(EdgeType::Right));
                     } else {
