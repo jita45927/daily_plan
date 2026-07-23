@@ -218,20 +218,16 @@ pub fn show_context_menu<R: Runtime>(
     };
 
     // 使用主窗口当前显示器的 scale_factor 来计算菜单位置和尺寸
-    let monitor = match main_window.current_monitor() {
+    let _monitor = match main_window.current_monitor() {
         Ok(Some(m)) => m,
         _ => return,
     };
-    let scale = monitor.scale_factor();
-
+    
     let (final_x, final_y) = match calculate_menu_position(&main_window, screen_x, screen_y, menu_width, menu_height) {
         Some(pos) => pos,
         None => return,
     };
-
-    let phys_width = (menu_width * scale) as u32;
-    let phys_height = (menu_height * scale) as u32;
-
+    
     if let Some(menu_win) = app.get_webview_window("context_menu") {
         // 先隐藏窗口
         let _ = menu_win.hide();
@@ -366,19 +362,10 @@ pub fn show_trash_context_menu<R: Runtime>(
     };
 
     // 使用主窗口当前显示器的 scale_factor 来计算菜单位置和尺寸
-    let monitor = match main_window.current_monitor() {
-        Ok(Some(m)) => m,
-        _ => return,
-    };
-    let scale = monitor.scale_factor();
-
     let (final_x, final_y) = match calculate_menu_position(&main_window, screen_x, screen_y, menu_width, menu_height) {
         Some(pos) => pos,
         None => return,
     };
-
-    let phys_width = (menu_width * scale) as u32;
-    let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("trash_context_menu") {
         // 先隐藏窗口

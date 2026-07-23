@@ -1015,7 +1015,6 @@ export const useTaskStore = defineStore('tasks', () => {
     hideCleanComputerNotice,
     
     // 清理重复文件方法
-    isCleaningDuplicates,
     cleanDuplicateStats,
     cleanDuplicateNotice,
     handleCleanDuplicateProgress,

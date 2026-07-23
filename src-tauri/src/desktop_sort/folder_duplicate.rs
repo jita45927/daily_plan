@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::Path;
-use tauri::{AppHandle, Emitter};
+use tauri::Emitter;
 use super::common::{compute_file_hash, move_to_recycle_bin};
 use super::duplicate_cleaner::{DuplicateFileGroup, DuplicateFile, DuplicateCleanStats};
 
@@ -144,44 +144,6 @@ pub fn find_duplicate_files_for_folder(folder_path_str: &str) -> Result<Vec<Dupl
     }
 
     Ok(groups)
-}
-
-pub fn clean_duplicate_files_for_folder(folder_path_str: &str) -> Result<(usize, usize, Vec<String>), String> {
-    let groups = find_duplicate_files_for_folder(folder_path_str)?;
-
-    let mut total_groups = 0;
-    let mut moved_count = 0;
-    let mut errors = Vec::new();
-
-    for group in &groups {
-        if group.files.len() <= 1 {
-            continue;
-        }
-
-        total_groups += 1;
-
-        for (i, file) in group.files.iter().enumerate() {
-            if i == 0 {
-                continue;
-            }
-
-            let path = Path::new(&file.path);
-            match move_to_recycle_bin(path) {
-                Ok(()) => {
-                    moved_count += 1;
-                    println!("[清理文件夹重复文件] 已移入回收站: {} ({})", file.name, file.folder);
-                }
-                Err(e) => {
-                    errors.push(format!("{}: {}", file.name, e));
-                }
-            }
-        }
-    }
-
-    println!("[清理文件夹重复文件] 完成: {} 组重复, 移入回收站 {} 个文件, 错误 {} 个",
-        total_groups, moved_count, errors.len());
-
-    Ok((total_groups, moved_count, errors))
 }
 
 #[tauri::command]
