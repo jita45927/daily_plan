@@ -113,27 +113,12 @@ const handleCleanFolderDuplicates = async () => {
     return
   }
 
-  let targetPath: string | null = null
+  let defaultPath: string | null = null
   try {
     const downloadsPath = await invoke<string>('get_downloads_path_cmd')
-    targetPath = downloadsPath
+    defaultPath = downloadsPath
   } catch {
-    targetPath = null
-  }
-
-  if (!targetPath) {
-    taskStore.showErrorAlert('错误', '无法获取系统下载目录，请手动选择文件夹。')
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: '选择要清理重复文件的文件夹',
-      })
-      if (selected) {
-        targetPath = typeof selected === 'string' ? selected : selected[0]
-      }
-    } catch {}
-    if (!targetPath) return
+    defaultPath = null
   }
 
   const doClean = async (path: string) => {
@@ -152,61 +137,31 @@ const handleCleanFolderDuplicates = async () => {
     }
   }
 
+  // 直接弹出文件夹选择窗口，默认路径为下载目录
+  const selected = await open({
+    directory: true,
+    multiple: false,
+    title: '选择要清理重复文件的文件夹',
+    defaultPath: defaultPath || undefined,
+  })
+
+  if (!selected) {
+    return
+  }
+
+  const targetPath = typeof selected === 'string' ? selected : selected[0]
+
   taskStore.showConfirm(
     '清理文件夹重复文件',
-    `默认清理系统下载目录：\n\n${targetPath}\n\n` +
-    '是否需要选择其他文件夹进行清理？',
-    async () => {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: '选择要清理重复文件的文件夹',
-      })
-      if (selected) {
-        targetPath = typeof selected === 'string' ? selected : selected[0]
-      }
-      
-      if (!targetPath) {
-        taskStore.showErrorAlert('错误', '未选择任何文件夹。')
-        return
-      }
-      
-      taskStore.showConfirm(
-        '清理文件夹重复文件',
-        `确定要清理以下文件夹中的重复文件吗？\n\n` +
-        `目录：${targetPath}\n\n` +
-        '将扫描以下子文件夹中的文件：\n' +
-        '• 可执行文件\n' +
-        '• 图片文件\n' +
-        '• 其他文件\n' +
-        '• 压缩包\n\n' +
-        '对于内容完全相同但名称不同的文件：\n' +
-        '• 保留按名称排序的第一个文件\n' +
-        '• 其余文件将被移到回收站\n\n' +
-        '注意：只扫描文件，不扫描文件夹。\n\n清理过程在后台进行，不影响其他功能。',
-        () => {
-          doClean(targetPath!)
-        }
-      )
-    },
+    `确定要清理以下文件夹中的重复文件吗？\n\n` +
+    `目录：${targetPath}\n\n` +
+    '将扫描该文件夹根目录下的所有文件。\n\n' +
+    '对于内容完全相同但名称不同的文件：\n' +
+    '• 保留按名称排序的第一个文件\n' +
+    '• 其余文件将被移到回收站\n\n' +
+    '注意：只扫描文件，不扫描文件夹。\n\n清理过程在后台进行，不影响其他功能。',
     () => {
-      taskStore.showConfirm(
-        '清理文件夹重复文件',
-        `确定要清理以下文件夹中的重复文件吗？\n\n` +
-        `目录：${targetPath}\n\n` +
-        '将扫描以下子文件夹中的文件：\n' +
-        '• 可执行文件\n' +
-        '• 图片文件\n' +
-        '• 其他文件\n' +
-        '• 压缩包\n\n' +
-        '对于内容完全相同但名称不同的文件：\n' +
-        '• 保留按名称排序的第一个文件\n' +
-        '• 其余文件将被移到回收站\n\n' +
-        '注意：只扫描文件，不扫描文件夹。\n\n清理过程在后台进行，不影响其他功能。',
-        () => {
-          doClean(targetPath!)
-        }
-      )
+      doClean(targetPath)
     }
   )
 }

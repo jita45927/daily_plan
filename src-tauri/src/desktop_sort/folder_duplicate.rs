@@ -11,13 +11,6 @@ pub fn find_duplicate_files_for_folder(folder_path_str: &str) -> Result<Vec<Dupl
         return Err(format!("目录不存在: {}", folder_path_str));
     }
 
-    let folders = [
-        "可执行文件",
-        "图片文件",
-        "其他文件",
-        "压缩包",
-    ];
-
     #[derive(Clone)]
     struct FileInfo {
         name: String,
@@ -30,52 +23,46 @@ pub fn find_duplicate_files_for_folder(folder_path_str: &str) -> Result<Vec<Dupl
     let mut errors = Vec::new();
     let mut total_files = 0usize;
 
-    for folder_name in &folders {
-        let folder_path = folder_path.join(folder_name);
-        if !folder_path.exists() {
+    // 直接扫描目标文件夹根目录下的所有文件，不扫描子文件夹
+    let entries = match fs::read_dir(&folder_path) {
+        Ok(e) => e,
+        Err(e) => {
+            return Err(format!("读取文件夹失败: {}", e));
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // 只扫描文件，不扫描文件夹
+        if !path.is_file() {
             continue;
         }
 
-        let entries = match fs::read_dir(&folder_path) {
-            Ok(e) => e,
+        let file_name = path.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+
+        let metadata = match fs::metadata(&path) {
+            Ok(m) => m,
             Err(e) => {
-                errors.push(format!("读取文件夹 {} 失败: {}", folder_name, e));
+                errors.push(format!("获取文件元数据失败 {}: {}", file_name, e));
                 continue;
             }
         };
 
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-
-            let file_name = path.file_name()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-
-            let metadata = match fs::metadata(&path) {
-                Ok(m) => m,
-                Err(e) => {
-                    errors.push(format!("获取文件元数据失败 {}: {}", file_name, e));
-                    continue;
-                }
-            };
-
-            let file_size = metadata.len();
-            if file_size == 0 {
-                continue;
-            }
-
-            total_files += 1;
-            all_files.push(FileInfo {
-                name: file_name,
-                path: path.to_string_lossy().to_string(),
-                folder: folder_name.to_string(),
-                size: file_size,
-            });
+        let file_size = metadata.len();
+        if file_size == 0 {
+            continue;
         }
+
+        total_files += 1;
+        all_files.push(FileInfo {
+            name: file_name,
+            path: path.to_string_lossy().to_string(),
+            folder: folder_path_str.to_string(),
+            size: file_size,
+        });
     }
 
     println!("[清理文件夹重复文件] 共扫描 {} 个文件，正在按大小初筛...", total_files);
