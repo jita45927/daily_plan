@@ -30,9 +30,7 @@ const handleResetApp = () => {
   taskStore.showConfirm('重置程序', '确定要重置程序吗？所有任务将被删除，窗口将恢复到初始位置。', async () => {
     try {
       await invoke('reset_app_cmd')
-      taskStore.tasks = []
-      taskStore.timerStates.clear()
-      taskStore.isWindowLocked = false
+      taskStore.resetAllState()
     } catch (error) {
       console.error('Failed to reset app:', error)
     }

@@ -930,6 +930,45 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanDuplicateNotice.value = { show: false, title: '', message: '' }
   }
 
+  // 重置所有状态（用于重置程序）
+  const resetAllState = () => {
+    tasks.value = []
+    isWindowLocked.value = false
+    contextMenu.value = { show: false, x: 0, y: 0, taskId: 0 }
+    mainMenu.value = { show: false, x: 0, y: 0 }
+    isAnalyzingDesktop.value = false
+    timerStates.value.clear()
+    expiredTask.value = null
+    isMuted.value = true
+    deletedTasks.value = []
+    trashWindowVisible.value = false
+    confirmDialog.value = { show: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} }
+    errorAlert.value = { show: false, title: '', message: '' }
+    activePopups.value = {}
+    isCleaningComputer.value = false
+    cleanComputerStats.value = {
+      scanned: 0,
+      deleted: 0,
+      skipped: 0,
+      freedBytes: 0,
+      currentCategory: '',
+      currentPath: '',
+      isRunning: false,
+      errorDetails: [],
+      categories: []
+    }
+    cleanComputerNotice.value = { show: false, title: '', message: '' }
+    isCleaningDuplicates.value = false
+    cleanDuplicateStats.value = {
+      currentCategory: '',
+      scanned: 0,
+      moved: 0,
+      skipped: 0,
+      isRunning: false
+    }
+    cleanDuplicateNotice.value = { show: false, title: '', message: '' }
+  }
+
   // 暴露方法和状态
   return {
     // 任务状态
@@ -1029,6 +1068,9 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanDuplicateNotice,
     handleCleanDuplicateProgress,
     handleCleanDuplicateDone,
-    hideCleanDuplicateNotice
+    hideCleanDuplicateNotice,
+    
+    // 重置方法
+    resetAllState
   }
 })
