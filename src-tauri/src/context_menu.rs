@@ -80,7 +80,8 @@ fn calc_main_menu_height(status: bool) -> f64 {
 /// 回收站右键菜单高度（固定）
 fn calc_trash_menu_height() -> f64 {
     // 彻底清除该任务, 恢复该任务, | [清理回收站标题], 一周前, 两周前, 一个月前, 清理全部
-    CONTAINER_PADDING + BTN_HEIGHT * 2.0 + DIVIDER_HEIGHT + SECTION_TITLE_HEIGHT + BTN_HEIGHT * 4.0 + 4.0
+    // 增加额外余量确保内容完整显示，特别是在不同分辨率屏幕上
+    CONTAINER_PADDING + BTN_HEIGHT * 2.0 + DIVIDER_HEIGHT + SECTION_TITLE_HEIGHT + BTN_HEIGHT * 4.0 + 16.0
 }
 
 /// 计算菜单位置（避免超出屏幕边界）
