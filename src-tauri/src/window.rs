@@ -38,6 +38,8 @@ struct ScreenEdge {
     edge_type: EdgeType,
     position: i32,
     is_shared: bool,
+    /// 边缘所属的屏幕索引（用于双屏幕时区分边缘归属）
+    monitor_index: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,9 +51,9 @@ enum EdgeType {
 /// 贴边线所在边（用于收起后显示的黄线位置）
 #[derive(Debug, Clone, PartialEq)]
 enum LineEdge {
-    Top,
-    Left,
-    Right,
+    Top(Option<usize>),
+    Left(Option<usize>),
+    Right(Option<usize>),
 }
 
 fn is_window_visible<R: Runtime>(app_handle: &tauri::AppHandle<R>, window_name: &str) -> bool {
@@ -494,21 +496,26 @@ impl WindowManager {
             }
         }
 
+        // 获取贴边时使用的屏幕索引（用于黄线定位）
+        let snap_monitor_index = snap_edge_x.as_ref().map(|e| e.monitor_index);
+
         // 确定贴边线所在边
-        let screen_top_y = window.current_monitor()
-            .ok().flatten()
+        let screen_top_y = snap_monitor_index.and_then(|idx| {
+            window.app_handle().available_monitors().ok()
+                .and_then(|monitors| monitors.get(idx).cloned())
+        }).or_else(|| window.current_monitor().ok().flatten())
             .map(|m| m.work_area().position.y)
             .unwrap_or(0);
         let is_at_top = aligned_inner_y == screen_top_y;
 
         let line_edge = if is_at_top {
             // 贴上边（无论是否同时贴左/右边）→ 上方应用线条
-            Some(LineEdge::Top)
+            Some(LineEdge::Top(snap_monitor_index))
         } else if snap_edge_x.is_some() {
             // 仅贴左/右边（未贴上边）
-            match snap_edge_x.unwrap() {
-                EdgeType::Left => Some(LineEdge::Left),
-                EdgeType::Right => Some(LineEdge::Right),
+            match snap_edge_x.unwrap().edge_type {
+                EdgeType::Left => Some(LineEdge::Left(snap_monitor_index)),
+                EdgeType::Right => Some(LineEdge::Right(snap_monitor_index)),
             }
         } else {
             None
@@ -520,7 +527,7 @@ impl WindowManager {
         if let Some(edge) = line_edge {
             let app = window.app_handle();
             if let Some(snap_win) = app.get_webview_window("snap_line") {
-                self.position_snap_line(&snap_win, window, &edge);
+                self.position_snap_line(&snap_win, window, &edge, snap_monitor_index);
             }
         }
     }
@@ -540,7 +547,7 @@ impl WindowManager {
         window_y
     }
 
-    fn calculate_snap_x<R: Runtime>(&self, window: &Window<R>, window_x: i32, window_width: u32) -> (i32, Option<EdgeType>) {
+    fn calculate_snap_x<R: Runtime>(&self, window: &Window<R>, window_x: i32, window_width: u32) -> (i32, Option<ScreenEdge>) {
         let monitors = match window.app_handle().available_monitors() {
             Ok(m) => m,
             Err(_) => return (window_x, None),
@@ -554,13 +561,13 @@ impl WindowManager {
         let window_right = window_x + window_width as i32;
         let window_center_x = window_x + (window_width / 2) as i32;
 
-        // 找到窗口中心所在的屏幕
-        let current_monitor = monitors.iter().find(|m| {
+        // 找到窗口中心所在的屏幕索引
+        let current_monitor_index = monitors.iter().enumerate().find(|(_, m)| {
             let work_area = m.work_area();
             let wa_pos = work_area.position;
             let wa_size = work_area.size;
             window_center_x >= wa_pos.x && window_center_x < wa_pos.x + wa_size.width as i32
-        });
+        }).map(|(idx, _)| idx);
 
         // 优先级 1: 共享边（双屏幕衔接处）
         for edge in &edges {
@@ -570,9 +577,8 @@ impl WindowManager {
 
                 if dist_left.abs() <= self.drag_threshold || dist_right.abs() <= self.drag_threshold {
                     // 判断窗口属于哪个屏幕，优先贴到窗口所在屏幕的边缘
-                    let prefer_left_edge = match current_monitor {
-                        Some(m) => {
-                            let wa_pos = m.work_area().position;
+                    let prefer_left_edge = match current_monitor_index {
+                        Some(idx) => {
                             // 如果窗口中心在共享边左侧（左屏幕），优先贴左屏幕的右边缘
                             window_center_x < edge.position
                         }
@@ -582,11 +588,18 @@ impl WindowManager {
                         }
                     };
 
+                    // 找到对应的 ScreenEdge（包含正确的 monitor_index）
+                    let target_edge = edges.iter()
+                        .find(|e| e.position == edge.position && 
+                               ((prefer_left_edge && e.edge_type == EdgeType::Right) ||
+                                (!prefer_left_edge && e.edge_type == EdgeType::Left)))
+                        .cloned();
+
                     if prefer_left_edge {
                         let new_x = edge.position - window_width as i32;
-                        return (new_x, Some(EdgeType::Right));
+                        return (new_x, target_edge);
                     } else {
-                        return (edge.position, Some(EdgeType::Left));
+                        return (edge.position, target_edge);
                     }
                 }
             }
@@ -599,14 +612,14 @@ impl WindowManager {
                     EdgeType::Left => {
                         let dist = window_x - edge.position;
                         if dist.abs() <= self.drag_threshold {
-                            return (edge.position, Some(EdgeType::Left));
+                            return (edge.position, Some(edge.clone()));
                         }
                     }
                     EdgeType::Right => {
                         let dist = window_right - edge.position;
                         if dist.abs() <= self.drag_threshold {
                             let new_x = edge.position - window_width as i32;
-                            return (new_x, Some(EdgeType::Right));
+                            return (new_x, Some(edge.clone()));
                         }
                     }
                 }
@@ -620,7 +633,7 @@ impl WindowManager {
         let mut edges: Vec<ScreenEdge> = Vec::new();
         let mut edge_positions: Vec<i32> = Vec::new();
 
-        for monitor in monitors.iter() {
+        for (monitor_index, monitor) in monitors.iter().enumerate() {
             let work_area = monitor.work_area();
             let wa_pos = work_area.position;
             let wa_size = work_area.size;
@@ -632,12 +645,14 @@ impl WindowManager {
                 edge_type: EdgeType::Left,
                 position: left_x,
                 is_shared: false,
+                monitor_index,
             });
 
             edges.push(ScreenEdge {
                 edge_type: EdgeType::Right,
                 position: right_x,
                 is_shared: false,
+                monitor_index,
             });
 
             edge_positions.push(left_x);
@@ -694,8 +709,12 @@ impl WindowManager {
         };
 
         // 定位贴边线
-        let edge = line_edge.unwrap();
-        self.position_snap_line(&snap_win, main_window, &edge);
+        let (edge_variant, monitor_index) = match line_edge.unwrap() {
+            LineEdge::Top(idx) => (LineEdge::Top(None), idx),
+            LineEdge::Left(idx) => (LineEdge::Left(None), idx),
+            LineEdge::Right(idx) => (LineEdge::Right(None), idx),
+        };
+        self.position_snap_line(&snap_win, main_window, &edge_variant, monitor_index);
 
         // 关闭所有菜单
         close_context_menu(main_window.clone());
@@ -769,6 +788,7 @@ impl WindowManager {
         snap_win: &tauri::WebviewWindow<R>,
         main_window: &Window<R>,
         edge: &LineEdge,
+        snap_monitor_index: Option<usize>,
     ) {
         // 主窗口的 inner_position 即为贴边后的屏幕边缘坐标
         let main_inner_pos = match main_window.inner_position() {
@@ -781,6 +801,23 @@ impl WindowManager {
         };
         let scale_factor = main_window.scale_factor().unwrap_or(1.0);
 
+        // 获取贴边屏幕的工作区域（用于确定黄线高度）
+        let snap_monitor = snap_monitor_index.and_then(|idx| {
+            main_window.app_handle().available_monitors().ok()
+                .and_then(|monitors| monitors.get(idx).cloned())
+        }).or_else(|| main_window.current_monitor().ok().flatten());
+
+        // 预先提取屏幕参数（避免多次移动 snap_monitor）
+        let screen_height = snap_monitor.as_ref()
+            .map(|m| m.work_area().size.height as i32)
+            .unwrap_or(main_inner_size.height as i32);
+        let screen_top_y = snap_monitor.as_ref()
+            .map(|m| m.work_area().position.y)
+            .unwrap_or(main_inner_pos.y);
+        let screen_right_x = snap_monitor.as_ref()
+            .map(|m| m.work_area().position.x + m.work_area().size.width as i32)
+            .unwrap_or(main_inner_pos.x + main_inner_size.width as i32);
+
         // 贴边线厚度：5 逻辑像素（视觉大小）
         let thickness = (5.0 * scale_factor) as i32;
         // 鼠标热区扩展：在贴边方向外扩展的像素数（不影响视觉）
@@ -789,17 +826,18 @@ impl WindowManager {
         // 计算窗口总尺寸（包含热区）和可见内容区位置
         // 热区扩展方向：向屏幕内部扩展，确保鼠标可以到达
         let (window_w, window_h, visible_offset_x, visible_offset_y, visible_w, visible_h) = match edge {
-            LineEdge::Top => {
+            LineEdge::Top(_) => {
                 // 顶部贴边：窗口向下扩展热区，可见区域在顶部，热区在下方
                 (main_inner_size.width as i32, thickness + hotzone_extend, 0, 0, main_inner_size.width as i32, thickness)
             }
-            LineEdge::Left => {
+            LineEdge::Left(_) => {
                 // 左侧贴边：窗口向右扩展热区，可见区域在左侧，热区在右侧
                 (thickness + hotzone_extend, main_inner_size.height as i32, 0, 0, thickness, main_inner_size.height as i32)
             }
-            LineEdge::Right => {
+            LineEdge::Right(_) => {
                 // 右侧贴边：窗口向左扩展热区，可见区域在右侧，热区在左侧
-                (thickness + hotzone_extend, main_inner_size.height as i32, hotzone_extend, 0, thickness, main_inner_size.height as i32)
+                // 使用贴边屏幕的高度而不是主窗口高度，确保黄线覆盖整个屏幕高度
+                (thickness + hotzone_extend, screen_height, hotzone_extend, 0, thickness, screen_height)
             }
         };
 
@@ -821,19 +859,18 @@ impl WindowManager {
 
         // 计算目标位置：让可见区域精确贴边，热区向屏幕内部扩展
         let (outer_x, outer_y) = match edge {
-            LineEdge::Top => {
+            LineEdge::Top(_) => {
                 // 水平线：可见区域 y 对齐屏幕顶部，窗口从顶部开始向下扩展
-                (main_inner_pos.x - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
+                (main_inner_pos.x - snap_shadow_x, screen_top_y - snap_shadow_y)
             }
-            LineEdge::Left => {
+            LineEdge::Left(_) => {
                 // 垂直线：可见区域 x 对齐屏幕左侧，窗口从左侧开始向右扩展
-                (main_inner_pos.x - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
+                (main_inner_pos.x - snap_shadow_x, screen_top_y - snap_shadow_y)
             }
-            LineEdge::Right => {
+            LineEdge::Right(_) => {
                 // 垂直线：可见区域右边对齐屏幕右侧，窗口向左扩展热区
-                let main_right = main_inner_pos.x + main_inner_size.width as i32;
-                // 窗口总宽度 = thickness + hotzone_extend，从右边缘向左放置
-                (main_right - window_w - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
+                // 使用贴边屏幕的右边缘位置，确保黄线在正确屏幕的边缘
+                (screen_right_x - window_w - snap_shadow_x, screen_top_y - snap_shadow_y)
             }
         };
 
@@ -879,9 +916,14 @@ impl WindowManager {
         // 如果当前有贴边，更新黄线位置和尺寸
         let line_edge = self.snap_line_edge.lock().unwrap().clone();
         if let Some(edge) = line_edge {
+            let (edge_variant, monitor_index) = match edge {
+                LineEdge::Top(idx) => (LineEdge::Top(None), idx),
+                LineEdge::Left(idx) => (LineEdge::Left(None), idx),
+                LineEdge::Right(idx) => (LineEdge::Right(None), idx),
+            };
             let app = window.app_handle();
             if let Some(snap_win) = app.get_webview_window("snap_line") {
-                self.position_snap_line(&snap_win, window, &edge);
+                self.position_snap_line(&snap_win, window, &edge_variant, monitor_index);
             }
         }
         
