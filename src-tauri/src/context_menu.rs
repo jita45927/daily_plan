@@ -63,12 +63,14 @@ fn calc_main_menu_height(status: bool) -> f64 {
     let mut height = CONTAINER_PADDING + 4.0; // 额外4px余量
 
     if !status {
-        // 未完成任务: 11个按钮 + 3个分隔线
-        height += BTN_HEIGHT * 11.0;
+        // 未完成任务: 12个按钮 + 3个分隔线
+        // 标记已完成, 标记未完成, 删除任务, 恢复任务, | 限时任务, 定时任务, 取消定时/限时, | 加粗文字, 文字改色, 默认样式, | 删除已完成任务, 删除所有任务
+        height += BTN_HEIGHT * 12.0;
         height += DIVIDER_HEIGHT * 3.0;
     } else {
-        // 已完成任务: 8个按钮 + 3个分隔线
-        height += BTN_HEIGHT * 8.0;
+        // 已完成任务: 9个按钮 + 3个分隔线（限时任务、定时任务、文字改色不显示）
+        // 标记已完成, 标记未完成, 删除任务, 恢复任务, | 取消定时/限时, | 加粗文字, 默认样式, | 删除已完成任务, 删除所有任务
+        height += BTN_HEIGHT * 9.0;
         height += DIVIDER_HEIGHT * 3.0;
     }
 
