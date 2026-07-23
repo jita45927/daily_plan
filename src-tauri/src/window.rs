@@ -339,6 +339,15 @@ impl WindowManager {
 
     pub fn set_resizing(&self, resizing: bool) {
         *self.is_resizing.lock().unwrap() = resizing;
+        
+        if resizing {
+            // 开始调整大小时，取消拖拽防抖定时器并重置拖拽状态
+            // 防止拖拽逻辑和调整大小逻辑冲突导致窗口抖动
+            if let Some(handle) = self.drag_debounce.lock().unwrap().take() {
+                handle.abort();
+            }
+            *self.is_dragging.lock().unwrap() = false;
+        }
     }
 
     pub fn update_config_size(&self, width: f64, height: f64) {

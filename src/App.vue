@@ -48,8 +48,11 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
   // 使用 clientY（逻辑像素坐标），与后端返回的逻辑像素坐标保持一致
   const startY = e.clientY
 
-  // 立即通知后端开始调整大小，禁用自动收起
+  // 立即通知后端开始调整大小，禁用自动收起和拖拽逻辑
   await invoke('set_resizing', { resizing: true })
+
+  // 等待一小段时间，确保后端状态更新完成
+  await new Promise(resolve => setTimeout(resolve, 10))
 
   const pos = await invoke('get_window_position') as [number, number, number, number]
   const startX = pos[0]
