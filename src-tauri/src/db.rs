@@ -213,6 +213,13 @@ pub fn reinitialize_db() -> Result<bool> {
     
     let conn = Connection::open(&db_path)?;
     create_tables(&conn)?;
+    
+    // 重置全局数据库连接，确保后续操作使用新的数据库
+    #[allow(static_mut_refs)]
+    unsafe {
+        *DB_CONNECTION.lock().unwrap() = Some(conn);
+    }
+    
     Ok(true)
 }
 

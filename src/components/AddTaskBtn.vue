@@ -29,10 +29,18 @@ const focusInput = async () => {
 const handleResetApp = () => {
   taskStore.showConfirm('重置程序', '确定要重置程序吗？所有任务将被删除，窗口将恢复到初始位置。', async () => {
     try {
+      // 先隐藏确认对话框，避免resetAllState重置时产生冲突
+      taskStore.hideConfirm()
       await invoke('reset_app_cmd')
-      taskStore.resetAllState()
+      // 重置所有状态（不包括confirmDialog，因为已经隐藏了）
+      taskStore.tasks = []
+      taskStore.deletedTasks = []
+      taskStore.timerStates.clear()
+      taskStore.isWindowLocked = false
+      taskStore.trashWindowVisible = false
     } catch (error) {
       console.error('Failed to reset app:', error)
+      taskStore.hideConfirm()
     }
   })
 }
