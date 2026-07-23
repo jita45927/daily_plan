@@ -471,6 +471,14 @@ impl WindowManager {
         };
 
         *self.snap_line_edge.lock().unwrap() = line_edge.clone();
+        
+        // 贴边后立即更新黄线位置和尺寸，确保收起时黄线尺寸正确
+        if let Some(edge) = line_edge {
+            let app = window.app_handle();
+            if let Some(snap_win) = app.get_webview_window("snap_line") {
+                self.position_snap_line(&snap_win, window, &edge);
+            }
+        }
     }
 
     /// Y 轴贴边：窗口接近屏幕顶部时对齐到顶部
@@ -798,7 +806,20 @@ impl WindowManager {
         }
     }
 
-    fn handle_monitor_change<R: Runtime>(&self, _window: &Window<R>) {
+    fn handle_monitor_change<R: Runtime>(&self, window: &Window<R>) {
+        // 显示器变化时重新执行贴边对齐，确保窗口位置正确
+        self.perform_snap(window);
+        
+        // 如果当前有贴边，更新黄线位置和尺寸
+        let line_edge = self.snap_line_edge.lock().unwrap().clone();
+        if let Some(edge) = line_edge {
+            let app = window.app_handle();
+            if let Some(snap_win) = app.get_webview_window("snap_line") {
+                self.position_snap_line(&snap_win, window, &edge);
+            }
+        }
+        
+        self.save_to_db();
     }
 
     pub fn toggle_lock<R: Runtime>(&self, _window: &Window<R>) -> bool {
