@@ -6,6 +6,18 @@ const imagePath = path.join(path.dirname(import.meta.url).replace('file:///', ''
 const imageBuffer = fs.readFileSync(imagePath);
 const base64Image = imageBuffer.toString('base64');
 
+// 获取当前构建日期时间
+const now = new Date();
+const buildDate = now.toLocaleString('zh-CN', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+});
+
 // 生成 HTML 内容
 const htmlContent = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -52,6 +64,13 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
   width: 0%;
   transition: width 0.3s ease;
 }
+.build-date {
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 11px;
+  margin-top: 8px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
 </style>
 </head>
 <body>
@@ -61,6 +80,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; }
     <div class="progress-bar-container">
       <div class="progress-bar" id="progressBar"></div>
     </div>
+    <div class="build-date">构建时间: ${buildDate}</div>
   </div>
 </div>
 <script>
