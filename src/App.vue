@@ -114,12 +114,16 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
           invoke('reset_snap_state').catch(() => {})
           // 通知后端结束调整大小
           invoke('set_resizing', { resizing: false }).catch(() => {})
+          // 重置拖拽状态
+          invoke('stop_dragging').catch(() => {})
         })
     } else {
       invoke('set_window_size', { width: startWidth, height: targetHeight })
         .then(() => {
           // 通知后端结束调整大小
           invoke('set_resizing', { resizing: false }).catch(() => {})
+          // 重置拖拽状态
+          invoke('stop_dragging').catch(() => {})
         })
     }
   }

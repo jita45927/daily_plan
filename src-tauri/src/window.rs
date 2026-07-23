@@ -125,7 +125,8 @@ impl WindowManager {
                     // 拖拽结束检测：使用防抖定时器
                     // 原生 start_dragging 会接管鼠标事件，前端 mouseup 不会触发
                     // 所以用 Moved 事件 + 防抖来检测拖拽结束
-                    if *manager.is_dragging.lock().unwrap() {
+                    // 注意：正在调整大小时不执行贴边逻辑
+                    if *manager.is_dragging.lock().unwrap() && !*manager.is_resizing.lock().unwrap() {
                         // 取消之前的防抖定时器
                         if let Some(handle) = manager.drag_debounce.lock().unwrap().take() {
                             handle.abort();
@@ -141,7 +142,8 @@ impl WindowManager {
                             // 第一阶段：100ms 后执行贴边对齐
                             sleep(Duration::from_millis(100)).await;
 
-                            if !*mgr.is_dragging.lock().unwrap() {
+                            // 如果已停止拖拽或正在调整大小，返回
+                            if !*mgr.is_dragging.lock().unwrap() || *mgr.is_resizing.lock().unwrap() {
                                 return;
                             }
 
@@ -151,7 +153,8 @@ impl WindowManager {
                             // 第二阶段：再等 200ms（共 300ms），如果仍无新移动，认为拖拽结束
                             sleep(Duration::from_millis(200)).await;
 
-                            if !*mgr.is_dragging.lock().unwrap() {
+                            // 如果已停止拖拽或正在调整大小，返回
+                            if !*mgr.is_dragging.lock().unwrap() || *mgr.is_resizing.lock().unwrap() {
                                 return;
                             }
 
