@@ -293,19 +293,23 @@ pub fn show_trash_context_menu<R: Runtime>(
     let menu_width = MENU_WIDTH;
     let menu_height = calc_trash_menu_height();
 
+    // 使用主窗口当前显示器的 scale_factor 来计算菜单位置和尺寸
+    let monitor = match window.current_monitor() {
+        Ok(Some(m)) => m,
+        _ => return,
+    };
+    let scale = monitor.scale_factor();
+
     let (final_x, final_y) = match calculate_menu_position(&window, screen_x, screen_y, menu_width, menu_height) {
         Some(pos) => pos,
         None => return,
     };
 
-    let scale = match window.current_monitor() {
-        Ok(Some(m)) => m.scale_factor(),
-        _ => return,
-    };
     let phys_width = (menu_width * scale) as u32;
     let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("trash_context_menu") {
+        // 先设置尺寸，再设置位置，确保位置计算基于最新尺寸
         let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
         let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
