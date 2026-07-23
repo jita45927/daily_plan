@@ -45,14 +45,12 @@ const handleMouseDown = (e: MouseEvent) => {
 const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') => {
   e.preventDefault()
   e.stopPropagation()
-  // 使用 clientY（逻辑像素坐标），与后端返回的逻辑像素坐标保持一致
-  const startY = e.clientY
+  
+  // 使用 screenY（屏幕坐标），不受窗口移动影响，避免抖动
+  const startScreenY = e.screenY
 
   // 立即通知后端开始调整大小，禁用自动收起和拖拽逻辑
   await invoke('set_resizing', { resizing: true })
-
-  // 等待一小段时间，确保后端状态更新完成
-  await new Promise(resolve => setTimeout(resolve, 10))
 
   const pos = await invoke('get_window_position') as [number, number, number, number]
   const startX = pos[0]
@@ -60,29 +58,14 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
   const startWidth = pos[2]
   const startHeight = pos[3]
 
-  let rafId: number | null = null
-  let isInvoking = false
-  let needsUpdate = false
   let targetHeight = startHeight
   let targetY = startYPos
-
-  const sendUpdate = () => {
-    isInvoking = true
-    needsUpdate = false
-    const promise = direction === 'north'
-      ? invoke('set_window_rect', { x: startX, y: targetY, width: startWidth, height: targetHeight })
-      : invoke('set_window_size', { width: startWidth, height: targetHeight })
-    promise.then(() => {
-      isInvoking = false
-      if (needsUpdate) {
-        sendUpdate()
-      }
-    })
-  }
+  let lastSentHeight = startHeight
+  let lastSentY = startYPos
 
   const handleMouseMove = (e: MouseEvent) => {
-    // 使用 clientY（逻辑像素坐标），与 startY 保持一致，无需额外缩放
-    const delta = e.clientY - startY
+    // 使用 screenY（屏幕坐标），不受窗口位置变化的影响
+    const delta = e.screenY - startScreenY
 
     if (direction === 'south') {
       targetHeight = Math.max(300, Math.min(startHeight + delta, 9999))
@@ -91,41 +74,35 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
       targetY = startYPos + startHeight - targetHeight
     }
 
-    if (isInvoking) {
-      needsUpdate = true
-    } else if (rafId === null) {
-      rafId = requestAnimationFrame(() => {
-        rafId = null
-        sendUpdate()
-      })
+    // 只有当值发生变化时才发送更新
+    if (targetHeight !== lastSentHeight || targetY !== lastSentY) {
+      lastSentHeight = targetHeight
+      lastSentY = targetY
+      
+      if (direction === 'north') {
+        invoke('set_window_rect', { x: startX, y: targetY, width: startWidth, height: targetHeight }).catch(() => {})
+      } else {
+        invoke('set_window_size', { width: startWidth, height: targetHeight }).catch(() => {})
+      }
     }
   }
 
   const handleMouseUp = () => {
     document.removeEventListener('mousemove', handleMouseMove)
     document.removeEventListener('mouseup', handleMouseUp)
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId)
-      rafId = null
-    }
     
     // 完成最终更新
     if (direction === 'north') {
       invoke('set_window_rect', { x: startX, y: targetY, width: startWidth, height: targetHeight })
         .then(() => {
-          // 拖动上边缘改变窗口位置后，解除贴边状态
           invoke('reset_snap_state').catch(() => {})
-          // 通知后端结束调整大小
           invoke('set_resizing', { resizing: false }).catch(() => {})
-          // 重置拖拽状态
           invoke('stop_dragging').catch(() => {})
         })
     } else {
       invoke('set_window_size', { width: startWidth, height: targetHeight })
         .then(() => {
-          // 通知后端结束调整大小
           invoke('set_resizing', { resizing: false }).catch(() => {})
-          // 重置拖拽状态
           invoke('stop_dragging').catch(() => {})
         })
     }

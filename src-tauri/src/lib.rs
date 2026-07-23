@@ -174,9 +174,10 @@ fn set_window_size(window: tauri::Window, width: f64, height: f64) {
 
 #[tauri::command]
 fn set_window_rect(window: tauri::Window, x: f64, y: f64, width: f64, height: f64) {
-    // 移除 WM_SETREDRAW：WebView2 有自己的合成器，禁用/启用重绘会导致白屏闪烁
-    // 仅使用 SWP_NOCOPYBITS 避免中间状态被复制绘制
+    // SWP_NOSENDCHANGING = 0x0400，阻止发送 WM_WINDOWPOSCHANGING 消息，减少事件触发
+    // 避免调整大小时频繁触发 Moved/Resized 事件导致抖动
     use winapi::um::winuser::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOCOPYBITS};
+    const SWP_NOSENDCHANGING: u32 = 0x0400;
 
     let manager = window.app_handle().state::<Arc<WindowManager>>();
 
@@ -191,7 +192,7 @@ fn set_window_rect(window: tauri::Window, x: f64, y: f64, width: f64, height: f6
             (y * scale_factor) as i32,
             (width * scale_factor) as i32,
             (height * scale_factor) as i32,
-            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_NOSENDCHANGING,
         );
     }
 
