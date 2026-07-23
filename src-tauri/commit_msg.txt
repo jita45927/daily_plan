@@ -1,8 +1,13 @@
-fix: 增加贴边诊断日志，修复黄线定位与主窗口对齐问题
+fix: 收起时基于黄线位置反推主窗口位置，展开后精确对齐屏幕边缘
 
-- 黄线定位改为基于屏幕 work_area 绝对坐标（不跟随窗口当前位置）
-- 主窗口对齐采用与黄线相同的定位方法 calculate_main_window_snap_position
-- 增加 verify 闭环验证：读取 set_position 后实际位置，偏差>1px则补偿调整
-- collapse_window 保存配置位置（非实际位置）作为展开恢复点
-- 增加 collapse_watcher 诊断日志：失焦防抖跳过、was_in=false 等场景
-- 增加 position_snap_line 和 set_collapsed_state 详细日志
+collapse_window 中新增位置反推逻辑：
+- 从屏幕 work_area 绝对坐标反推主窗口外框位置
+- 左贴边：outer_x = wa.position.x - shadow_offset_x
+- 右贴边：outer_x = wa_right - inner_width - shadow_offset_x
+- 上贴边：outer_y = wa.position.y - shadow_offset_y
+- 反推位置同步写入 config 和 collapsed_position
+
+set_collapsed_state 展开时增加验证补偿：
+- 读取 set_position 后的实际 inner_position
+- 偏差 > 1px 则补偿调整 outer 位置
+- 确保窗口精确恢复到与黄线对齐的位置

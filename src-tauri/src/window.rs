@@ -933,18 +933,67 @@ impl WindowManager {
         // 通知前端关闭主菜单（主菜单是前端Teleport组件）
         let _ = main_window.emit("window_collapsed", serde_json::json!({}));
 
-        // 保存收起前的窗口外框位置
-        // 优先使用 config 中保存的贴边后位置（perform_snap 更新过），
-        // 而非当前窗口实际位置（可能被微拖到屏幕外，如 inner=-7）。
-        // 这样展开时窗口能恢复到正确的贴边位置。
+        // 新思路：基于黄线的精确位置反推并更新主窗口的存储位置
+        // 这样展开时窗口能精确恢复到与黄线对齐的位置
+        // 黄线位置基于屏幕 work_area 绝对坐标计算，是"权威"位置
+        let main_inner_size = main_window.inner_size().unwrap_or(tauri::PhysicalSize::new(300, 600));
+        let main_outer_pos = main_window.outer_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
+        let main_inner_pos = main_window.inner_position().unwrap_or(tauri::PhysicalPosition::new(0, 0));
+        let shadow_offset_x = main_inner_pos.x - main_outer_pos.x;
+        let shadow_offset_y = main_inner_pos.y - main_outer_pos.y;
+        let scale_factor = main_window.scale_factor().unwrap_or(1.0);
+
+        // 获取贴边屏幕的 work_area（与 position_snap_line 使用相同的屏幕选择逻辑）
+        let snap_monitor = monitor_index.and_then(|idx| {
+            main_window.app_handle().available_monitors().ok()
+                .and_then(|monitors| monitors.get(idx).cloned())
+        }).or_else(|| main_window.current_monitor().ok().flatten());
+
+        let wa = snap_monitor.as_ref()
+            .map(|m| m.work_area())
+            .cloned()
+            .unwrap_or_else(|| tauri::PhysicalRect {
+                position: tauri::PhysicalPosition::new(0, 0),
+                size: tauri::PhysicalSize::new(1920, 1080),
+            });
+
+        // 根据贴边方向，从屏幕 work_area 反推主窗口的精确外框位置
+        let (precise_outer_x, precise_outer_y) = match &edge_variant {
+            LineEdge::Left(_) => {
+                // 左贴边：主窗口内框 X = 屏幕左边缘
+                let inner_x = wa.position.x;
+                let outer_x = inner_x - shadow_offset_x;
+                // Y 坐标保持当前窗口位置（垂直位置不变）
+                (outer_x, main_outer_pos.y)
+            }
+            LineEdge::Right(_) => {
+                // 右贴边：主窗口内框右边 = 屏幕右边缘
+                let wa_right = wa.position.x + wa.size.width as i32;
+                let outer_x = wa_right - main_inner_size.width as i32 - shadow_offset_x;
+                (outer_x, main_outer_pos.y)
+            }
+            LineEdge::Top(_) => {
+                // 上贴边：主窗口内框 Y = 屏幕顶部
+                let inner_y = wa.position.y;
+                let outer_y = inner_y - shadow_offset_y;
+                // X 坐标保持当前窗口位置（水平位置不变）
+                (main_outer_pos.x, outer_y)
+            }
+        };
+
+        // 更新 config 和 collapsed_position 为基于黄线反推的精确位置
         {
-            let config = self.config.lock().unwrap();
-            let scale_factor = main_window.scale_factor().unwrap_or(1.0);
-            let saved_x = (config.x * scale_factor) as i32;
-            let saved_y = (config.y * scale_factor) as i32;
-            *self.collapsed_position.lock().unwrap() = 
-                Some(tauri::PhysicalPosition::new(saved_x, saved_y));
+            let mut config = self.config.lock().unwrap();
+            config.x = precise_outer_x as f64 / scale_factor;
+            config.y = precise_outer_y as f64 / scale_factor;
+            debug_log(&format!(
+                "[collapse] updated config from snap line: precise_outer=({},{}), logical=({},{}), wa=({},{},{},{})",
+                precise_outer_x, precise_outer_y, config.x, config.y,
+                wa.position.x, wa.position.y, wa.size.width, wa.size.height
+            ));
         }
+        *self.collapsed_position.lock().unwrap() = 
+            Some(tauri::PhysicalPosition::new(precise_outer_x, precise_outer_y));
 
         // 使用原子方法设置收起状态
         self.set_collapsed_state(&app, true);
@@ -977,11 +1026,30 @@ impl WindowManager {
             let _ = main_window.unminimize();
             let _ = main_window.show();
             
-            // 恢复到收起前的位置
+            // 恢复到收起前保存的位置（collapse_window 中已基于黄线反推更新）
             let pos = *self.collapsed_position.lock().unwrap();
             if let Some(p) = pos {
                 let _ = main_window.set_position(p);
                 debug_log(&format!("[set_collapsed_state] main restored to ({},{})", p.x, p.y));
+
+                // 展开后验证：读取实际位置，如果有偏差则补偿调整
+                // 确保窗口精确恢复到与黄线对齐的位置
+                if let (Ok(actual_outer), Ok(actual_inner)) = (main_window.outer_position(), main_window.inner_position()) {
+                    // 计算 shadow_offset（实际内框与外框的差）
+                    let actual_shadow_x = actual_inner.x - actual_outer.x;
+                    // 目标内框位置 = 目标外框位置 + shadow_offset
+                    let target_inner_x = p.x + actual_shadow_x;
+                    let x_diff = target_inner_x - actual_inner.x;
+                    
+                    if x_diff.abs() > 1 {
+                        debug_log(&format!(
+                            "[set_collapsed_state] EXPAND verify: target_inner_x={}, actual_inner={}, diff={}, correcting...",
+                            target_inner_x, actual_inner.x, x_diff
+                        ));
+                        let corrected_outer = tauri::PhysicalPosition::new(actual_outer.x + x_diff, actual_outer.y);
+                        let _ = main_window.set_position(corrected_outer);
+                    }
+                }
             } else {
                 let config = self.config.lock().unwrap();
                 let _ = main_window.set_position(tauri::LogicalPosition::new(config.x, config.y));
