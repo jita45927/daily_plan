@@ -351,50 +351,64 @@ onUnmounted(() => {
     <Transition name="fade">
       <div
         v-if="taskStore.mainMenu.show"
-        class="main-menu fixed z-50 bg-white rounded-lg shadow-xl overflow-hidden"
+        class="main-menu fixed z-50 bg-white overflow-hidden"
         :style="menuStyle"
       >
-        <div class="p-2">
+        <div style="padding: 4px 0;">
           <button
             @click="handleCleanComputer"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#eff6ff'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             清理电脑
           </button>
           <button
             @click="handleOrganizeDesktop"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#eff6ff'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             整理桌面文件
           </button>
           <button
             @click="handleOrganizeDownloads"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#eff6ff'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             整理文件夹
           </button>
           <button
             @click="handleCleanDuplicateFiles"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#fff7ed'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             清理桌面重复文件
           </button>
           <button
             @click="handleCleanFolderDuplicates"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-orange-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#fff7ed'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             清理文件夹重复文件
           </button>
           <button
             @click="handleEmptyRecycleBin"
-            class="block w-full px-4 py-2 text-sm text-gray-700 hover:bg-red-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#fef2f2'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             清空回收站
           </button>
-          <div class="border-t border-gray-200 my-2"></div>
+          <div style="height:1px;background-color:#f3f4f6;margin:4px 0;"></div>
           <button
             @click="handleShowHelp"
-            class="block w-full px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded transition-colors text-left"
+            style="display:block;width:100%;padding:6px 12px;font-size:11px;color:#374151;text-align:left;border:none;background:transparent;cursor:pointer;"
+            onmouseover="this.style.backgroundColor='#f9fafb'"
+            onmouseout="this.style.backgroundColor='transparent'"
           >
             帮助
           </button>
