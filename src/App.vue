@@ -48,6 +48,9 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
   // 使用 clientY（逻辑像素坐标），与后端返回的逻辑像素坐标保持一致
   const startY = e.clientY
 
+  // 立即通知后端开始调整大小，禁用自动收起
+  await invoke('set_resizing', { resizing: true })
+
   const pos = await invoke('get_window_position') as [number, number, number, number]
   const startX = pos[0]
   const startYPos = pos[1]
@@ -102,10 +105,22 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
       cancelAnimationFrame(rafId)
       rafId = null
     }
+    
+    // 完成最终更新
     if (direction === 'north') {
       invoke('set_window_rect', { x: startX, y: targetY, width: startWidth, height: targetHeight })
+        .then(() => {
+          // 拖动上边缘改变窗口位置后，解除贴边状态
+          invoke('reset_snap_state').catch(() => {})
+          // 通知后端结束调整大小
+          invoke('set_resizing', { resizing: false }).catch(() => {})
+        })
     } else {
       invoke('set_window_size', { width: startWidth, height: targetHeight })
+        .then(() => {
+          // 通知后端结束调整大小
+          invoke('set_resizing', { resizing: false }).catch(() => {})
+        })
     }
   }
 

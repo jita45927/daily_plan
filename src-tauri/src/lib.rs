@@ -32,7 +32,8 @@ use desktop_sort::{
 use window::{
     get_window_config, save_window_config, set_always_on_top,
     start_dragging, stop_dragging, toggle_window_lock, collapse_to_snap_line,
-    set_main_menu_open, is_main_menu_open, set_sub_window_open, WindowManager,
+    set_main_menu_open, is_main_menu_open, set_sub_window_open,
+    set_resizing, reset_snap_state_cmd, WindowManager,
 };
 use task_timer::{
     calibrate_timer_cmd, get_timer_status_cmd, start_countdown_cmd, start_scheduled_timer_cmd,
@@ -89,24 +90,36 @@ fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     // 先重置贴边状态（确保窗口展开）
     manager.reset_snap_state(&window);
     
+    // 设置窗口为默认大小（300x600）
+    let default_width = 300.0;
+    let default_height = 600.0;
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+    
+    // 使用 Win32 API 设置窗口大小
+    use winapi::um::winuser::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOCOPYBITS};
+    let hwnd = window.hwnd().unwrap();
+    unsafe {
+        SetWindowPos(
+            hwnd.0 as *mut _,
+            std::ptr::null_mut(),
+            0, 0,
+            (default_width * scale_factor) as i32,
+            (default_height * scale_factor) as i32,
+            SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOCOPYBITS,
+        );
+    }
+    
     // 将窗口移到主屏幕正中央（使用物理坐标）
     manager.move_to_primary_monitor_center(&window)?;
     
-    // 获取当前窗口大小
-    let window_size = match window.inner_size() {
-        Ok(s) => s,
-        Err(e) => return Err(format!("获取窗口大小失败: {}", e)),
-    };
-    
-    // 更新配置（使用逻辑坐标存储）
+    // 更新配置为默认大小
     let mut default_config = window::WindowConfigData::default();
-    default_config.width = window_size.width as f64;
-    default_config.height = window_size.height as f64;
-    let config_height = default_config.height;
+    default_config.width = default_width;
+    default_config.height = default_height;
     manager.save_config(default_config);
     
     // 保存到数据库
-    save_db_window_config(0.0, 0.0, config_height, false)
+    save_db_window_config(0.0, 0.0, default_height, false)
         .map_err(|e| e.to_string())?;
     
     // 确保窗口可见并在顶层
@@ -141,7 +154,6 @@ fn set_window_size(window: tauri::Window, width: f64, height: f64) {
     use winapi::um::winuser::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOCOPYBITS};
 
     let manager = window.app_handle().state::<Arc<WindowManager>>();
-    manager.set_resizing(true);
 
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     let hwnd = window.hwnd().unwrap();
@@ -158,7 +170,6 @@ fn set_window_size(window: tauri::Window, width: f64, height: f64) {
     }
 
     manager.update_config_size(width, height);
-    manager.set_resizing(false);
 }
 
 #[tauri::command]
@@ -168,7 +179,6 @@ fn set_window_rect(window: tauri::Window, x: f64, y: f64, width: f64, height: f6
     use winapi::um::winuser::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOCOPYBITS};
 
     let manager = window.app_handle().state::<Arc<WindowManager>>();
-    manager.set_resizing(true);
 
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     let hwnd = window.hwnd().unwrap();
@@ -186,7 +196,6 @@ fn set_window_rect(window: tauri::Window, x: f64, y: f64, width: f64, height: f6
     }
 
     manager.update_config_rect(x, y, width, height);
-    manager.set_resizing(false);
 }
 
 #[tauri::command]
@@ -276,6 +285,8 @@ pub fn run() {
             set_main_menu_open,
             is_main_menu_open,
             set_sub_window_open,
+            set_resizing,
+            reset_snap_state_cmd,
             find_duplicate_files_cmd,
             clean_duplicate_files_cmd,
             get_downloads_path_cmd,

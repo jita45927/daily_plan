@@ -969,6 +969,18 @@ pub fn is_main_menu_open(window: tauri::Window) -> bool {
 }
 
 #[tauri::command]
+pub fn set_resizing(window: tauri::Window, resizing: bool) {
+    let manager = window.app_handle().state::<Arc<WindowManager>>();
+    manager.set_resizing(resizing);
+}
+
+#[tauri::command]
+pub fn reset_snap_state_cmd(window: tauri::Window) {
+    let manager = window.app_handle().state::<Arc<WindowManager>>();
+    manager.reset_snap_state(&window);
+}
+
+#[tauri::command]
 pub fn set_sub_window_open(window: tauri::Window, open: bool) {
     let manager = window.app_handle().state::<Arc<WindowManager>>();
     manager.set_sub_window_open(open);
