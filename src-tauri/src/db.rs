@@ -207,8 +207,29 @@ fn connect_with_recovery() -> Result<DbGuard> {
 pub fn reinitialize_db() -> Result<bool> {
     let db_path = get_db_path();
     
+    println!("[重置程序] 数据库路径: {:?}", db_path);
+    println!("[重置程序] 数据库文件存在: {}", db_path.exists());
+    
+    // 先关闭全局连接，确保没有其他进程持有文件句柄
+    #[allow(static_mut_refs)]
+    unsafe {
+        *DB_CONNECTION.lock().unwrap() = None;
+    }
+    println!("[重置程序] 全局连接已关闭");
+    
     if db_path.exists() {
-        let _ = fs::remove_file(&db_path);
+        match fs::remove_file(&db_path) {
+            Ok(_) => println!("[重置程序] 数据库文件删除成功"),
+            Err(e) => {
+                println!("[重置程序] 数据库文件删除失败: {}", e);
+                // 如果文件删除失败，尝试删除可能存在的WAL和SHM文件
+                let wal_path = db_path.with_extension("db-wal");
+                let shm_path = db_path.with_extension("db-shm");
+                let _ = fs::remove_file(&wal_path);
+                let _ = fs::remove_file(&shm_path);
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+        }
     }
     
     let conn = Connection::open(&db_path)?;
@@ -219,6 +240,8 @@ pub fn reinitialize_db() -> Result<bool> {
     unsafe {
         *DB_CONNECTION.lock().unwrap() = Some(conn);
     }
+    
+    println!("[重置程序] 数据库已重新初始化");
     
     Ok(true)
 }

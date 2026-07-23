@@ -78,7 +78,11 @@ fn exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
 
 #[tauri::command]
 fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
+    println!("[重置程序] 开始重置...");
+    
     reinitialize_db().map_err(|e| e.to_string())?;
+    
+    println!("[重置程序] 数据库已重置");
 
     let primary_monitor = window.app_handle().primary_monitor()
         .map_err(|e| format!("获取主屏幕信息失败: {}", e))?
