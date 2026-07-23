@@ -35,6 +35,10 @@ const taskTextStyle = (task: DeletedTask) => {
 const handleContextMenu = (e: MouseEvent, task: DeletedTask) => {
   e.preventDefault()
   e.stopPropagation()
+  
+  // 关闭左键菜单，确保不会同时显示两个菜单
+  taskStore.closeMainMenu()
+  
   invoke('show_trash_context_menu', {
     screenX: e.screenX,
     screenY: e.screenY,
