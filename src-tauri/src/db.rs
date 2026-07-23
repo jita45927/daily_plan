@@ -107,11 +107,15 @@ pub struct WindowConfig {
 }
 
 fn get_db_path() -> PathBuf {
-    let mut path = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    path.push("data");
+    let mut path = dirs::data_local_dir()
+        .unwrap_or_else(|| {
+            // 如果无法获取用户数据目录，回退到当前可执行文件目录
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default())
+        });
+    path.push("DailyPlan");
     std::fs::create_dir_all(&path).unwrap_or_default();
     path.push("daily_plan.db");
     path
@@ -204,7 +208,7 @@ fn connect_with_recovery() -> Result<DbGuard> {
     get_db_guard()
 }
 
-pub fn reinitialize_db() -> Result<bool> {
+pub fn reinitialize_db() -> Result<bool, String> {
     let db_path = get_db_path();
     
     println!("[重置程序] 数据库路径: {:?}", db_path);
@@ -227,13 +231,13 @@ pub fn reinitialize_db() -> Result<bool> {
                 let shm_path = db_path.with_extension("db-shm");
                 let _ = fs::remove_file(&wal_path);
                 let _ = fs::remove_file(&shm_path);
-                return Err(rusqlite::Error::QueryReturnedNoRows);
+                return Err(format!("无法删除数据库文件: {}", e));
             }
         }
     }
     
-    let conn = Connection::open(&db_path)?;
-    create_tables(&conn)?;
+    let conn = Connection::open(&db_path).map_err(|e| format!("无法打开数据库: {}", e))?;
+    create_tables(&conn).map_err(|e| format!("无法创建数据库表: {}", e))?;
     
     // 重置全局数据库连接，确保后续操作使用新的数据库
     #[allow(static_mut_refs)]

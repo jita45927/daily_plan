@@ -80,7 +80,7 @@ fn exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
 fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     println!("[重置程序] 开始重置...");
     
-    reinitialize_db().map_err(|e| e.to_string())?;
+    reinitialize_db()?;
     
     println!("[重置程序] 数据库已重置");
 
