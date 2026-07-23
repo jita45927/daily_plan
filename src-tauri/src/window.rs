@@ -83,6 +83,8 @@ pub struct WindowManager {
     last_focus_loss_time: Mutex<Option<Instant>>,
     /// 是否有子窗口/对话框/菜单打开（打开时禁用收起）
     is_sub_window_open: Mutex<bool>,
+    /// 是否跳过下次贴边计算（用于用户主动解除贴边后避免立即重新贴边）
+    skip_next_snap: Mutex<bool>,
 }
 
 impl WindowManager {
@@ -101,6 +103,7 @@ impl WindowManager {
             is_focused: Mutex::new(true),
             last_focus_loss_time: Mutex::new(None),
             is_sub_window_open: Mutex::new(false),
+            skip_next_snap: Mutex::new(false),
         }
     }
 
@@ -394,6 +397,9 @@ impl WindowManager {
         *self.is_collapsed.lock().unwrap() = false;
         *self.collapsed_position.lock().unwrap() = None;
         *self.mouse_was_in_window.lock().unwrap() = false;
+        
+        // 设置跳过下次贴边计算，避免窗口移动后立即重新贴边
+        *self.skip_next_snap.lock().unwrap() = true;
 
         if let Some(snap_win) = window.app_handle().get_webview_window("snap_line") {
             let _ = snap_win.hide();
@@ -424,6 +430,12 @@ impl WindowManager {
     fn perform_snap<R: Runtime>(&self, window: &Window<R>) {
         // 收起状态下不执行贴边计算
         if *self.is_collapsed.lock().unwrap() {
+            return;
+        }
+        
+        // 如果设置了跳过下次贴边，则跳过本次计算并清除标志
+        if *self.skip_next_snap.lock().unwrap() {
+            *self.skip_next_snap.lock().unwrap() = false;
             return;
         }
 
