@@ -605,16 +605,23 @@ pub fn clear_trash_by_period(period_days: i64) -> Result<i64> {
     let conn = connect_with_recovery()?;
     create_tables(&conn)?;
 
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM deleted_tasks WHERE deleted_at < datetime('now', '-?1 days')",
-        [period_days],
-        |row| row.get(0),
-    ).unwrap_or(0);
-
-    conn.execute(
-        "DELETE FROM deleted_tasks WHERE deleted_at < datetime('now', '-?1 days')",
-        [period_days],
-    )?;
+    let count: i64;
+    if period_days == 0 {
+        // 清理全部
+        count = conn.query_row(
+            "SELECT COUNT(*) FROM deleted_tasks",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(0);
+        conn.execute("DELETE FROM deleted_tasks", [])?;
+    } else {
+        // 清理指定天数前的记录
+        let sql = format!("SELECT COUNT(*) FROM deleted_tasks WHERE deleted_at < datetime('now', '-{} days')", period_days);
+        count = conn.query_row(&sql, [], |row| row.get(0)).unwrap_or(0);
+        
+        let sql = format!("DELETE FROM deleted_tasks WHERE deleted_at < datetime('now', '-{} days')", period_days);
+        conn.execute(&sql, [])?;
+    }
 
     Ok(count)
 }
