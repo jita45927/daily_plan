@@ -185,63 +185,80 @@ pub fn clean_duplicate_files_cmd(app_handle: tauri::AppHandle) -> Result<(usize,
     };
     let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
 
-    let groups = find_duplicate_files()?;
+    let result = match find_duplicate_files() {
+        Ok(groups) => {
+            let mut stats = DuplicateCleanStats {
+                current_category: "扫描完成，正在处理...".to_string(),
+                scanned: groups.iter().map(|g| g.files.len()).sum(),
+                moved: 0,
+                skipped: 0,
+                is_running: true,
+            };
+            let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
 
-    let mut stats = DuplicateCleanStats {
-        current_category: "扫描完成，正在处理...".to_string(),
-        scanned: groups.iter().map(|g| g.files.len()).sum(),
-        moved: 0,
-        skipped: 0,
-        is_running: true,
-    };
-    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+            let mut total_groups = 0;
+            let mut moved_count = 0;
+            let mut errors = Vec::new();
 
-    let mut total_groups = 0;
-    let mut moved_count = 0;
-    let mut errors = Vec::new();
+            for (gi, group) in groups.iter().enumerate() {
+                if group.files.len() <= 1 {
+                    continue;
+                }
 
-    for (gi, group) in groups.iter().enumerate() {
-        if group.files.len() <= 1 {
-            continue;
-        }
+                total_groups += 1;
+                stats.current_category = format!("处理第 {} 组重复文件", gi + 1);
+                let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
 
-        total_groups += 1;
-        stats.current_category = format!("处理第 {} 组重复文件", gi + 1);
-        let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+                for (i, file) in group.files.iter().enumerate() {
+                    if i == 0 {
+                        continue;
+                    }
 
-        for (i, file) in group.files.iter().enumerate() {
-            if i == 0 {
-                continue;
+                    let path = Path::new(&file.path);
+                    match move_to_recycle_bin(path) {
+                        Ok(()) => {
+                            moved_count += 1;
+                            stats.moved = moved_count;
+                            let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+                            println!("[清理重复文件] 已移入回收站: {} ({})", file.name, file.folder);
+                        }
+                        Err(e) => {
+                            errors.push(format!("{}: {}", file.name, e));
+                            stats.skipped += 1;
+                            let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+                        }
+                    }
+                }
             }
 
-            let path = Path::new(&file.path);
-            match move_to_recycle_bin(path) {
-                Ok(()) => {
-                    moved_count += 1;
-                    stats.moved = moved_count;
-                    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
-                    println!("[清理重复文件] 已移入回收站: {} ({})", file.name, file.folder);
-                }
-                Err(e) => {
-                    errors.push(format!("{}: {}", file.name, e));
-                    stats.skipped += 1;
-                    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
-                }
-            }
+            let stats = DuplicateCleanStats {
+                current_category: "清理完成".to_string(),
+                scanned: stats.scanned,
+                moved: moved_count,
+                skipped: stats.skipped,
+                is_running: false,
+            };
+            let _ = app_handle.emit("clean-duplicate-done", stats);
+
+            println!("[清理重复文件] 完成: {} 组重复, 移入回收站 {} 个文件, 错误 {} 个",
+                total_groups, moved_count, errors.len());
+
+            Ok((total_groups, moved_count, errors))
         }
-    }
+        Err(e) => {
+            // 扫描失败也要发送 done 事件，避免前端状态卡住
+            let stats = DuplicateCleanStats {
+                current_category: format!("扫描失败: {}", e),
+                scanned: 0,
+                moved: 0,
+                skipped: 0,
+                is_running: false,
+            };
+            let _ = app_handle.emit("clean-duplicate-done", stats);
 
-    let stats = DuplicateCleanStats {
-        current_category: "清理完成".to_string(),
-        scanned: stats.scanned,
-        moved: moved_count,
-        skipped: stats.skipped,
-        is_running: false,
+            Err(e)
+        }
     };
-    let _ = app_handle.emit("clean-duplicate-done", stats);
 
-    println!("[清理重复文件] 完成: {} 组重复, 移入回收站 {} 个文件, 错误 {} 个",
-        total_groups, moved_count, errors.len());
-
-    Ok((total_groups, moved_count, errors))
+    result
 }

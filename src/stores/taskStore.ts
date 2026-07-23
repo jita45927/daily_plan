@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import type { CleanStats } from './types'
 
 export interface Task {
   id: number
@@ -61,17 +62,7 @@ export interface CategoryResult {
   freedBytes: number
 }
 
-export interface CleanStats {
-  scanned: number
-  deleted: number
-  skipped: number
-  freedBytes: number
-  currentCategory: string
-  currentPath: string
-  isRunning: boolean
-  errorDetails: string[]
-  categories: CategoryResult[]
-}
+// CleanStats 已在 types.ts 中定义，此处无需重复
 
 type TaskResponse = Task
 type DeletedTaskResponse = DeletedTask
@@ -881,15 +872,25 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanComputerStats.value = event.payload
   }
 
-  const handleCleanComputerDone = (event: { payload: { success: boolean; message: string; totalFreedBytes: number; categories: CategoryResult[] } }) => {
-    const { success, message, totalFreedBytes, categories } = event.payload
+  const handleCleanComputerDone = (event: { payload: CleanStats }) => {
+    const stats = event.payload
     isCleaningComputer.value = false
     cleanComputerStats.value.isRunning = false
 
+    const categoryLines = stats.categories
+      .map(c => `• ${c.name}: 删除 ${c.deleted} 个，释放 ${formatBytes(c.freedBytes)}`)
+      .join('\n')
+
+    const message =
+      `扫描 ${stats.scanned} 个文件\n` +
+      `已删除 ${stats.deleted} 个，跳过 ${stats.skipped} 个（占用/权限）\n` +
+      `共释放 ${formatBytes(stats.freedBytes)} 磁盘空间\n\n` +
+      `各类别清理情况：\n${categoryLines || '• 无可清理内容'}`
+
     cleanComputerNotice.value = {
       show: true,
-      title: success ? '清理完成' : '清理失败',
-      message: `${message}\n\n释放空间: ${formatBytes(totalFreedBytes)}\n\n分类统计:\n${categories.map(c => `• ${c.name}: 删除 ${c.deleted} 个，跳过 ${c.skipped} 个`).join('\n')}`
+      title: '清理完成',
+      message
     }
   }
 
@@ -909,10 +910,19 @@ export const useTaskStore = defineStore('tasks', () => {
     isCleaningDuplicates.value = false
     cleanDuplicateStats.value.isRunning = false
 
-    cleanDuplicateNotice.value = {
-      show: true,
-      title: '清理完成',
-      message: `扫描 ${stats.scanned} 个文件\n已移入回收站 ${stats.moved} 个\n跳过 ${stats.skipped} 个（占用/权限）`
+    // 判断是否失败
+    if (stats.currentCategory.startsWith('扫描失败')) {
+      cleanDuplicateNotice.value = {
+        show: true,
+        title: '扫描失败',
+        message: stats.currentCategory
+      }
+    } else {
+      cleanDuplicateNotice.value = {
+        show: true,
+        title: '清理完成',
+        message: `扫描 ${stats.scanned} 个文件\n已移入回收站 ${stats.moved} 个\n跳过 ${stats.skipped} 个（占用/权限）`
+      }
     }
   }
 
