@@ -90,13 +90,24 @@ fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     save_db_window_config(center_x, center_y, 600.0, false).map_err(|e| e.to_string())?;
 
     let manager = window.app_handle().state::<Arc<WindowManager>>();
+    
+    // 先重置贴边状态（确保窗口展开）
+    manager.reset_snap_state(&window);
+    
+    // 更新配置
     let mut default_config = window::WindowConfigData::default();
     default_config.x = center_x;
     default_config.y = center_y;
     default_config.height = 600.0;
     manager.save_config(default_config);
+    
+    // 应用配置到窗口
     manager.apply_config_to_window(&window);
-    manager.reset_snap_state(&window);
+    
+    // 确保窗口可见并在顶层
+    let _ = window.show();
+    let _ = window.set_always_on_top(true);
+    let _ = window.set_focus();
 
     if let Some(menu_win) = window.app_handle().get_webview_window("context_menu") {
         let _ = menu_win.hide();
@@ -280,16 +291,39 @@ pub fn run() {
             manager.load_from_db();
             
             let mut config = manager.get_config();
-            if config.x == 0.0 && config.y == 0.0 {
-                if let Ok(Some(primary_monitor)) = app.primary_monitor() {
-                    let work_area = primary_monitor.work_area();
-                    let center_x = (work_area.size.width as f64 - 300.0) / 2.0 + work_area.position.x as f64;
-                    let center_y = (work_area.size.height as f64 - 600.0) / 2.0 + work_area.position.y as f64;
-                    config.x = center_x;
-                    config.y = center_y;
-                    manager.save_config(config);
-                    save_db_window_config(center_x, center_y, 600.0, false).ok();
-                }
+            
+            // 计算主显示器中心位置
+            let (center_x, center_y) = if let Ok(Some(primary_monitor)) = app.primary_monitor() {
+                let work_area = primary_monitor.work_area();
+                let cx = (work_area.size.width as f64 - 300.0) / 2.0 + work_area.position.x as f64;
+                let cy = (work_area.size.height as f64 - 600.0) / 2.0 + work_area.position.y as f64;
+                (cx, cy)
+            } else {
+                (0.0, 0.0)
+            };
+            
+            // 验证位置是否在主显示器工作区内
+            // 如果位置无效（在屏幕外或不在主显示器范围内），重置为中心位置
+            let is_position_valid = if let Ok(Some(primary_monitor)) = app.primary_monitor() {
+                let work_area = primary_monitor.work_area();
+                let wa_x = work_area.position.x as f64;
+                let wa_y = work_area.position.y as f64;
+                let wa_w = work_area.size.width as f64;
+                let wa_h = work_area.size.height as f64;
+                
+                // 窗口左上角在工作区内，且右下角也在工作区内（留出一些余量）
+                config.x >= wa_x - 100.0 && config.x <= wa_x + wa_w + 100.0 &&
+                config.y >= wa_y - 100.0 && config.y <= wa_y + wa_h + 100.0
+            } else {
+                // 无法获取主显示器信息，认为位置无效
+                false
+            };
+            
+            if !is_position_valid || config.x == 0.0 && config.y == 0.0 {
+                config.x = center_x;
+                config.y = center_y;
+                manager.save_config(config);
+                save_db_window_config(center_x, center_y, 600.0, false).ok();
             }
             
             let window = app.get_window("main").unwrap_or_else(|| {
