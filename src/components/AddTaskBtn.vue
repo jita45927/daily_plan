@@ -141,7 +141,7 @@ onUnmounted(() => {
     </button>
     <button
       v-if="!showInput"
-      @click="taskStore.deleteCompletedTasks"
+      @click="taskStore.showConfirm('删除已完成任务', '是否删除所有已完成任务？', () => taskStore.deleteCompletedTasks())"
       class="w-6 h-6 rounded-full bg-orange-500 hover:bg-orange-600 flex items-center justify-center transition-all shadow-md hover:shadow-lg active:scale-95 flex-shrink-0"
       title="删除已完成任务"
     >
