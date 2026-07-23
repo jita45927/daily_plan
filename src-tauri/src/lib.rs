@@ -218,6 +218,19 @@ fn get_window_position(window: tauri::Window) -> Result<(f64, f64, f64, f64), St
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // 单实例保护：当用户尝试启动第二个实例时，不创建新窗口，
+            // 而是展开（若处于贴边收起状态）并聚焦到已存在的主窗口
+            if let Some(manager) = app.try_state::<Arc<WindowManager>>() {
+                // 若主窗口处于贴边收起状态，先展开恢复
+                manager.expand_window(app);
+            }
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(WindowManager::new()))
