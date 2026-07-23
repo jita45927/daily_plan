@@ -229,13 +229,18 @@ pub fn show_context_menu<R: Runtime>(
     let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("context_menu") {
-        // 先设置尺寸，再设置位置，确保位置计算基于最新尺寸
+        // 先隐藏窗口，确保尺寸更新生效（解决多屏幕切换时尺寸不刷新的问题）
+        let _ = menu_win.hide();
+        
+        // 设置尺寸和位置
         let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
         let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
+        
+        // 重新加载内容并显示
+        let _ = menu_win.emit("context-menu-reload", ());
         let _ = menu_win.show();
         let _ = menu_win.set_focus();
-        let _ = menu_win.emit("context-menu-reload", ());
     }
 }
 
@@ -354,13 +359,18 @@ pub fn show_trash_context_menu<R: Runtime>(
     let phys_height = (menu_height * scale) as u32;
 
     if let Some(menu_win) = app.get_webview_window("trash_context_menu") {
-        // 先设置尺寸，再设置位置，确保位置计算基于最新尺寸
+        // 先隐藏窗口，确保尺寸更新生效（解决多屏幕切换时尺寸不刷新的问题）
+        let _ = menu_win.hide();
+        
+        // 设置尺寸和位置
         let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
         let _ = menu_win.set_position(tauri::PhysicalPosition::new(final_x, final_y));
         let _ = menu_win.set_always_on_top(true);
+        
+        // 重新加载内容并显示
+        let _ = menu_win.emit("trash-context-menu-reload", task_id);
         let _ = menu_win.show();
         let _ = menu_win.set_focus();
-        let _ = menu_win.emit("trash-context-menu-reload", task_id);
     }
 }
 
