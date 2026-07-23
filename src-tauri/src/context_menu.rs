@@ -85,7 +85,7 @@ fn calc_trash_menu_height() -> f64 {
 
 /// 计算菜单位置（避免超出屏幕边界）
 fn calculate_menu_position<R: Runtime>(
-    window: &Window<R>,
+    window: &tauri::WebviewWindow<R>,
     screen_x: f64,
     screen_y: f64,
     menu_width: f64,
@@ -190,14 +190,36 @@ pub fn show_context_menu<R: Runtime>(
     let menu_width = MENU_WIDTH;
     let menu_height = calc_main_menu_height(task.status);
 
+    // 获取主窗口，使用主窗口的显示器信息而非调用者窗口
+    let main_window = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => {
+            // 如果找不到主窗口，回退到使用调用者窗口
+            let monitor = match window.current_monitor() {
+                Ok(Some(m)) => m,
+                _ => return,
+            };
+            let scale = monitor.scale_factor();
+            let phys_width = (menu_width * scale) as u32;
+            let phys_height = (menu_height * scale) as u32;
+            if let Some(menu_win) = app.get_webview_window("context_menu") {
+                let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
+                let _ = menu_win.set_position(tauri::PhysicalPosition::new(screen_x as i32, screen_y as i32));
+                let _ = menu_win.show();
+                let _ = menu_win.emit("context-menu-reload", ());
+            }
+            return;
+        }
+    };
+
     // 使用主窗口当前显示器的 scale_factor 来计算菜单位置和尺寸
-    let monitor = match window.current_monitor() {
+    let monitor = match main_window.current_monitor() {
         Ok(Some(m)) => m,
         _ => return,
     };
     let scale = monitor.scale_factor();
 
-    let (final_x, final_y) = match calculate_menu_position(&window, screen_x, screen_y, menu_width, menu_height) {
+    let (final_x, final_y) = match calculate_menu_position(&main_window, screen_x, screen_y, menu_width, menu_height) {
         Some(pos) => pos,
         None => return,
     };
@@ -293,14 +315,36 @@ pub fn show_trash_context_menu<R: Runtime>(
     let menu_width = MENU_WIDTH;
     let menu_height = calc_trash_menu_height();
 
+    // 获取主窗口，使用主窗口的显示器信息而非调用者窗口
+    let main_window = match app.get_webview_window("main") {
+        Some(w) => w,
+        None => {
+            // 如果找不到主窗口，回退到使用调用者窗口
+            let monitor = match window.current_monitor() {
+                Ok(Some(m)) => m,
+                _ => return,
+            };
+            let scale = monitor.scale_factor();
+            let phys_width = (menu_width * scale) as u32;
+            let phys_height = (menu_height * scale) as u32;
+            if let Some(menu_win) = app.get_webview_window("trash_context_menu") {
+                let _ = menu_win.set_size(tauri::PhysicalSize::new(phys_width, phys_height));
+                let _ = menu_win.set_position(tauri::PhysicalPosition::new(screen_x as i32, screen_y as i32));
+                let _ = menu_win.show();
+                let _ = menu_win.emit("trash-context-menu-reload", task_id);
+            }
+            return;
+        }
+    };
+
     // 使用主窗口当前显示器的 scale_factor 来计算菜单位置和尺寸
-    let monitor = match window.current_monitor() {
+    let monitor = match main_window.current_monitor() {
         Ok(Some(m)) => m,
         _ => return,
     };
     let scale = monitor.scale_factor();
 
-    let (final_x, final_y) = match calculate_menu_position(&window, screen_x, screen_y, menu_width, menu_height) {
+    let (final_x, final_y) = match calculate_menu_position(&main_window, screen_x, screen_y, menu_width, menu_height) {
         Some(pos) => pos,
         None => return,
     };

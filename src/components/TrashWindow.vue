@@ -4,6 +4,12 @@ import { invoke } from '@tauri-apps/api/core'
 
 const taskStore = useTaskStore()
 
+const handleClearAll = () => {
+  taskStore.showConfirm('清理回收站', '确定要清空回收站吗？所有任务将被彻底删除！', () => {
+    taskStore.clearTrashByPeriod(0)
+  })
+}
+
 const formatDeletedAt = (dateStr: string) => {
   const d = new Date(dateStr)
   const y = d.getFullYear()
@@ -101,6 +107,15 @@ const handleWindowMouseDown = () => {
           </div>
         </div>
       </div>
+    </div>
+
+    <div class="px-3 py-2 border-t border-yellow-500/30 flex-shrink-0">
+      <button
+        @click="handleClearAll"
+        class="w-full py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+      >
+        清理全部
+      </button>
     </div>
   </div>
 </template>
