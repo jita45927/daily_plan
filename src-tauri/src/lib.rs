@@ -292,7 +292,8 @@ pub fn run() {
             
             let mut config = manager.get_config();
             
-            // 计算主显示器中心位置
+            // 程序每次运行都恢复到主显示器正中央和初始尺寸（300x600）
+            // 解决多屏幕适配问题：如果上次在第二屏幕，重新打开时能看到窗口
             let (center_x, center_y) = if let Ok(Some(primary_monitor)) = app.primary_monitor() {
                 let work_area = primary_monitor.work_area();
                 let cx = (work_area.size.width as f64 - 300.0) / 2.0 + work_area.position.x as f64;
@@ -302,29 +303,14 @@ pub fn run() {
                 (0.0, 0.0)
             };
             
-            // 验证位置是否在主显示器工作区内
-            // 如果位置无效（在屏幕外或不在主显示器范围内），重置为中心位置
-            let is_position_valid = if let Ok(Some(primary_monitor)) = app.primary_monitor() {
-                let work_area = primary_monitor.work_area();
-                let wa_x = work_area.position.x as f64;
-                let wa_y = work_area.position.y as f64;
-                let wa_w = work_area.size.width as f64;
-                let wa_h = work_area.size.height as f64;
-                
-                // 窗口左上角在工作区内，且右下角也在工作区内（留出一些余量）
-                config.x >= wa_x - 100.0 && config.x <= wa_x + wa_w + 100.0 &&
-                config.y >= wa_y - 100.0 && config.y <= wa_y + wa_h + 100.0
-            } else {
-                // 无法获取主显示器信息，认为位置无效
-                false
-            };
-            
-            if !is_position_valid || config.x == 0.0 && config.y == 0.0 {
-                config.x = center_x;
-                config.y = center_y;
-                manager.save_config(config);
-                save_db_window_config(center_x, center_y, 600.0, false).ok();
-            }
+            // 强制重置位置和尺寸
+            config.x = center_x;
+            config.y = center_y;
+            config.width = 300.0;
+            config.height = 600.0;
+            config.is_locked = false;
+            manager.save_config(config);
+            save_db_window_config(center_x, center_y, 600.0, false).ok();
             
             let window = app.get_window("main").unwrap_or_else(|| {
                 tauri::WindowBuilder::new(app, "main")
