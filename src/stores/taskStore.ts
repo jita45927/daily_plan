@@ -92,7 +92,6 @@ export const useTaskStore = defineStore('tasks', () => {
     y: 0
   })
   const isAnalyzingDesktop = ref(false)
-  const isCleaningDuplicates = ref(false)
   
   // 定时器状态
   const timerStates = ref<Map<number, TimerState>>(new Map())
@@ -921,7 +920,8 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanDuplicateNotice.value = { show: false, title: '', message: '' }
   }
 
-  // 暴露方法和状态return {
+  // 暴露方法和状态
+  return {
     // 任务状态
     tasks,
     isWindowLocked,
