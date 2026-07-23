@@ -111,6 +111,8 @@ export const useTaskStore = defineStore('tasks', () => {
     timeInput?: boolean
     countdownAlert?: boolean
   }>({})
+  // 子窗口/对话框计数器，用于管理自动收起功能的禁用状态
+  const subWindowCount = ref(0)
   
   // 清理电脑状态
   const isCleaningComputer = ref(false)
@@ -193,13 +195,30 @@ export const useTaskStore = defineStore('tasks', () => {
     return Math.floor(date.getTime() / 1000)
   }
 
+  // 子窗口/对话框管理方法
+  const incrementSubWindow = () => {
+    subWindowCount.value++
+    if (subWindowCount.value === 1) {
+      invoke('set_sub_window_open', { open: true }).catch(() => {})
+    }
+  }
+
+  const decrementSubWindow = () => {
+    subWindowCount.value = Math.max(0, subWindowCount.value - 1)
+    if (subWindowCount.value === 0) {
+      invoke('set_sub_window_open', { open: false }).catch(() => {})
+    }
+  }
+
   // 错误处理方法
   const showErrorAlert = (title: string, message: string) => {
     errorAlert.value = { show: true, title, message }
+    incrementSubWindow()
   }
 
   const hideErrorAlert = () => {
     errorAlert.value = { show: false, title: '', message: '' }
+    decrementSubWindow()
   }
 
   const handleDbError = async (error: unknown, action: string) => {
@@ -215,18 +234,22 @@ export const useTaskStore = defineStore('tasks', () => {
 
   const showConfirm = (title: string, message: string, onConfirm: () => void, onCancel?: () => void) => {
     confirmDialog.value = { show: true, title, message, onConfirm, onCancel: onCancel || (() => {}) }
+    incrementSubWindow()
   }
 
   const hideConfirm = () => {
     confirmDialog.value = { show: false, title: '', message: '', onConfirm: () => {}, onCancel: () => {} }
+    decrementSubWindow()
   }
 
   const openPopup = (popup: keyof typeof activePopups.value) => {
     activePopups.value[popup] = true
+    incrementSubWindow()
   }
 
   const closePopup = (popup: keyof typeof activePopups.value) => {
     activePopups.value[popup] = false
+    decrementSubWindow()
   }
 
   // 任务方法
@@ -388,10 +411,12 @@ export const useTaskStore = defineStore('tasks', () => {
     // 打开右键菜单前，先关闭左键菜单
     closeMainMenu()
     contextMenu.value = { show: true, x, y, taskId }
+    incrementSubWindow()
   }
 
   const closeContextMenu = () => {
     contextMenu.value = { show: false, x: 0, y: 0, taskId: 0 }
+    decrementSubWindow()
   }
 
   const openMainMenu = (x: number, y: number) => {
@@ -399,11 +424,13 @@ export const useTaskStore = defineStore('tasks', () => {
     closeContextMenu()
     mainMenu.value = { show: true, x, y }
     invoke('set_main_menu_open', { open: true }).catch(() => {})
+    incrementSubWindow()
   }
 
   const closeMainMenu = () => {
     mainMenu.value = { show: false, x: 0, y: 0 }
     invoke('set_main_menu_open', { open: false }).catch(() => {})
+    decrementSubWindow()
   }
 
   const updateTaskText = async (id: number, text: string) => {
@@ -830,10 +857,12 @@ export const useTaskStore = defineStore('tasks', () => {
   const openTrashWindow = () => {
     trashWindowVisible.value = true
     loadDeletedTasks()
+    incrementSubWindow()
   }
 
   const closeTrashWindow = () => {
     trashWindowVisible.value = false
+    decrementSubWindow()
   }
 
   // 清理电脑方法

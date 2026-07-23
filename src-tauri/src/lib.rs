@@ -32,7 +32,7 @@ use desktop_sort::{
 use window::{
     get_window_config, save_window_config, set_always_on_top,
     start_dragging, stop_dragging, toggle_window_lock, collapse_to_snap_line,
-    set_main_menu_open, is_main_menu_open, WindowManager,
+    set_main_menu_open, is_main_menu_open, set_sub_window_open, WindowManager,
 };
 use task_timer::{
     calibrate_timer_cmd, get_timer_status_cmd, start_countdown_cmd, start_scheduled_timer_cmd,
@@ -274,6 +274,7 @@ pub fn run() {
             expand_from_snap_line,
             set_main_menu_open,
             is_main_menu_open,
+            set_sub_window_open,
             find_duplicate_files_cmd,
             clean_duplicate_files_cmd,
             get_downloads_path_cmd,

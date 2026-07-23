@@ -81,6 +81,8 @@ pub struct WindowManager {
     is_focused: Mutex<bool>,
     /// 上次失去焦点的时间（用于防抖，区分鼠标离开和系统最小化）
     last_focus_loss_time: Mutex<Option<Instant>>,
+    /// 是否有子窗口/对话框/菜单打开（打开时禁用收起）
+    is_sub_window_open: Mutex<bool>,
 }
 
 impl WindowManager {
@@ -98,6 +100,7 @@ impl WindowManager {
             is_main_menu_open: Mutex::new(false),
             is_focused: Mutex::new(true),
             last_focus_loss_time: Mutex::new(None),
+            is_sub_window_open: Mutex::new(false),
         }
     }
 
@@ -198,7 +201,8 @@ impl WindowManager {
                     let dragging = *manager.is_dragging.lock().unwrap();
                     let resizing = *manager.is_resizing.lock().unwrap();
                     let has_edge = manager.snap_line_edge.lock().unwrap().is_some();
-                    !collapsed && !dragging && !resizing && has_edge
+                    let sub_window_open = *manager.is_sub_window_open.lock().unwrap();
+                    !collapsed && !dragging && !resizing && has_edge && !sub_window_open
                 };
 
                 if !should_check {
@@ -832,6 +836,11 @@ impl WindowManager {
         locked
     }
 
+    /// 设置子窗口/对话框/菜单的打开状态
+    pub fn set_sub_window_open(&self, open: bool) {
+        *self.is_sub_window_open.lock().unwrap() = open;
+    }
+
     pub fn get_config(&self) -> WindowConfigData {
         self.config.lock().unwrap().clone()
     }
@@ -941,6 +950,12 @@ pub fn is_main_menu_open(window: tauri::Window) -> bool {
     let manager = window.app_handle().state::<Arc<WindowManager>>();
     let x = *manager.is_main_menu_open.lock().unwrap();
     x
+}
+
+#[tauri::command]
+pub fn set_sub_window_open(window: tauri::Window, open: bool) {
+    let manager = window.app_handle().state::<Arc<WindowManager>>();
+    manager.set_sub_window_open(open);
 }
 
 /// 用 Win32 GetCursorPos 获取全局鼠标物理坐标
