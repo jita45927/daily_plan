@@ -146,6 +146,7 @@ const handleScheduledFocus = (e: FocusEvent) => {
                 placeholder="时"
                 class="w-20 px-3 py-2 text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 @input="handleInput"
+                autocomplete="off"
               />
               <span class="text-gray-400">:</span>
               <input
@@ -158,6 +159,7 @@ const handleScheduledFocus = (e: FocusEvent) => {
                 placeholder="分"
                 class="w-20 px-3 py-2 text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
                 @input="handleInput"
+                autocomplete="off"
               />
             </div>
             <p class="text-xs text-gray-500">提示：总时长范围 1分钟-24:00</p>
@@ -172,6 +174,7 @@ const handleScheduledFocus = (e: FocusEvent) => {
               class="w-full px-3 py-2 text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
               @input="handleInput"
               @focus="handleScheduledFocus"
+              autocomplete="off"
             />
             <p class="text-xs text-gray-500">格式：YYYY/MM/DD-HH:MM，不能早于当前时间</p>
           </div>

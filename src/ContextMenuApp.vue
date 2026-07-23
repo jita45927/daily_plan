@@ -355,6 +355,7 @@ onUnmounted(() => {
           placeholder="输入分钟数"
           style="width:100%;padding:6px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:12px;box-sizing:border-box;"
           @keyup.enter="confirmLimitTask"
+          autocomplete="off"
         />
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
           <button
@@ -389,6 +390,7 @@ onUnmounted(() => {
           style="width:100%;padding:6px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:12px;box-sizing:border-box;"
           @keyup.enter="confirmTimerTask"
           @focus="handleTimerFocus"
+          autocomplete="off"
         />
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
           <button

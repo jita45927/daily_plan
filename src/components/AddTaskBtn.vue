@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { getCurrentWebview } from '@tauri-apps/api/webview'
 import { useTaskStore } from '../stores/taskStore'
 
 const taskStore = useTaskStore()
@@ -26,19 +27,46 @@ const focusInput = async () => {
   inputRef.value?.focus()
 }
 
+const clearAllBrowserStorage = () => {
+  try {
+    localStorage.clear()
+    sessionStorage.clear()
+    if (window.indexedDB && indexedDB.databases) {
+      indexedDB.databases().then((dbs) => {
+        dbs.forEach((db) => {
+          if (db.name) {
+            indexedDB.deleteDatabase(db.name)
+          }
+        })
+      }).catch(() => {})
+    }
+  } catch (e) {
+    console.error('Failed to clear browser storage:', e)
+  }
+}
+
 const handleResetApp = () => {
-  taskStore.showConfirm('重置程序', '确定要重置程序吗？所有任务将被删除，窗口将恢复到初始位置。', async () => {
+  taskStore.showConfirm('重置程序', '确定要重置程序吗？所有任务将被删除，窗口将恢复到初始位置，所有历史数据将被彻底清除。', async () => {
     try {
-      // 先隐藏确认对话框，避免resetAllState重置时产生冲突
       taskStore.hideConfirm()
+      
+      // 1. 清除所有WebView浏览数据（自动填充、Cookie、缓存、LocalStorage等）
+      try {
+        await getCurrentWebview().clearAllBrowsingData()
+      } catch (e) {
+        console.error('Failed to clear browsing data via Tauri API:', e)
+      }
+      
+      // 2. 手动清除浏览器存储作为备用方案
+      clearAllBrowserStorage()
+      
+      // 3. 重置后端数据库和窗口位置
       await invoke('reset_app_cmd')
-      // 重置所有状态（不包括confirmDialog，因为已经隐藏了）
-      taskStore.tasks = []
-      taskStore.deletedTasks = []
-      taskStore.timerStates.clear()
-      taskStore.isWindowLocked = false
-      taskStore.trashWindowVisible = false
-      // 重新加载回收站数据，确保与新数据库同步
+      
+      // 4. 重置所有前端状态
+      taskStore.resetAllState()
+      
+      // 5. 重新加载回收站数据，确保与新数据库同步
       await taskStore.loadDeletedTasks()
     } catch (error) {
       console.error('Failed to reset app:', error)
@@ -88,6 +116,7 @@ onUnmounted(() => {
         placeholder="添加新任务..."
         class="w-full px-4 py-3 bg-white/90 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500 text-gray-800 text-sm shadow-sm"
         autofocus
+        autocomplete="off"
       />
     </div>
     <button

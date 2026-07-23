@@ -81,21 +81,38 @@ fn exit_app<R: tauri::Runtime>(app: tauri::AppHandle<R>) {
 fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     println!("[重置程序] 开始重置...");
     
-    reinitialize_db()?;
+    let app_handle = window.app_handle();
     
+    // 1. 停止所有计时器和闹钟
+    if let Some(timer_manager) = app_handle.try_state::<Arc<TimerManager>>() {
+        timer_manager.stop_all_timers();
+        timer_manager.stop_alarm();
+        println!("[重置程序] 计时器已停止");
+    }
+    
+    // 2. 隐藏所有子窗口
+    let sub_windows = ["context_menu", "trash_context_menu", "desktop_analyze", "downloads_analyze"];
+    for win_label in &sub_windows {
+        if let Some(win) = app_handle.get_webview_window(win_label) {
+            let _ = win.hide();
+        }
+    }
+    println!("[重置程序] 子窗口已隐藏");
+    
+    // 3. 重置数据库
+    reinitialize_db()?;
     println!("[重置程序] 数据库已重置");
 
-    let manager = window.app_handle().state::<Arc<WindowManager>>();
+    let manager = app_handle.state::<Arc<WindowManager>>();
     
-    // 先重置贴边状态（确保窗口展开）
+    // 4. 重置贴边状态（确保窗口展开）
     manager.reset_snap_state(&window);
     
-    // 设置窗口为默认大小（300x600）
+    // 5. 设置窗口为默认大小（300x600）
     let default_width = 300.0;
     let default_height = 600.0;
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     
-    // 使用 Win32 API 设置窗口大小
     use winapi::um::winuser::{SetWindowPos, SWP_NOZORDER, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOCOPYBITS};
     let hwnd = window.hwnd().unwrap();
     unsafe {
@@ -109,28 +126,26 @@ fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
         );
     }
     
-    // 将窗口移到主屏幕正中央（使用物理坐标）
+    // 6. 将窗口移到主屏幕正中央（使用物理坐标）
     manager.move_to_primary_monitor_center(&window)?;
     
-    // 更新配置为默认大小
+    // 7. 更新配置为默认值
     let mut default_config = window::WindowConfigData::default();
     default_config.width = default_width;
     default_config.height = default_height;
+    default_config.is_locked = false;
     manager.save_config(default_config);
     
-    // 保存到数据库
+    // 8. 保存窗口配置到数据库
     save_db_window_config(0.0, 0.0, default_height, false)
         .map_err(|e| e.to_string())?;
     
-    // 确保窗口可见并在顶层
+    // 9. 确保主窗口可见并在顶层
     let _ = window.show();
     let _ = window.set_always_on_top(true);
     let _ = window.set_focus();
-
-    if let Some(menu_win) = window.app_handle().get_webview_window("context_menu") {
-        let _ = menu_win.hide();
-    }
-
+    
+    println!("[重置程序] 重置完成");
     Ok(true)
 }
 

@@ -195,6 +195,7 @@ onUnmounted(() => {
               :style="{ color: task.color }"
               @keydown="handleEditKeydown"
               @blur="handleEditBlur"
+              autocomplete="off"
             />
           </template>
           <p

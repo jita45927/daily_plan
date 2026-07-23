@@ -106,6 +106,7 @@ const handleStopAlarm = () => {
                   min="1"
                   max="1440"
                   class="flex-1 px-3 py-2 text-center border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  autocomplete="off"
                 />
               </div>
               <div class="flex justify-end gap-2 mt-2">

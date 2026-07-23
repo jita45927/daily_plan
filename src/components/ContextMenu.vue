@@ -259,6 +259,7 @@ onUnmounted(() => {
             max="1440"
             placeholder="输入分钟数"
             class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            autocomplete="off"
           />
           <div class="flex justify-end gap-3 mt-4">
             <button
@@ -292,6 +293,7 @@ onUnmounted(() => {
             type="text"
             placeholder="例如：2024/01/15-14:30"
             class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            autocomplete="off"
           />
           <div class="flex justify-end gap-3 mt-4">
             <button

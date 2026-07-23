@@ -1,7 +1,5 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use std::fs::OpenOptions;
-use std::io::Write;
 
 use serde::{Deserialize, Serialize};
 use tauri::{
@@ -11,29 +9,6 @@ use tokio::time::sleep;
 use crate::context_menu::{close_context_menu, close_trash_context_menu};
 use crate::db;
 use crate::snap_line::set_window_exact_region_with_offset;
-
-/// 调试日志函数：将日志写入文件，因为 Tauri GUI 应用的 stderr 不会输出到控制台
-fn debug_log(msg: &str) {
-    let exe_path = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return,
-    };
-    let log_path = exe_path.parent()
-        .map(|p| p.join("debug.log"))
-        .unwrap_or_else(|| std::path::PathBuf::from("debug.log"));
-    
-    if let Ok(mut file) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&log_path)
-    {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis();
-        let _ = writeln!(file, "[{}] {}", timestamp, msg);
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WindowConfigData {
@@ -312,25 +287,12 @@ impl WindowManager {
                         };
                         
                         if should_collapse {
-                            debug_log(&format!(
-                                "[collapse_watcher] mouse=({},{}), window=({},{} size={},{})",
-                                mouse.x, mouse.y, pos.x, pos.y, size.width, size.height
-                            ));
                             *manager.mouse_was_in_window.lock().unwrap() = false;
                             manager.collapse_window(&window);
                         } else {
-                            debug_log(&format!(
-                                "[collapse_watcher] SKIP (focus loss debounce): mouse=({},{}), window=({},{}), elapsed={:?}",
-                                mouse.x, mouse.y, pos.x, pos.y,
-                                manager.last_focus_loss_time.lock().unwrap().map(|t| t.elapsed())
-                            ));
                         }
                     } else {
                         // 鼠标在外，但从未进入过窗口，记录一次用于诊断
-                        debug_log(&format!(
-                            "[collapse_watcher] mouse OUT, was_in=false: mouse=({},{}), window=({},{} size={},{})",
-                            mouse.x, mouse.y, pos.x, pos.y, size.width, size.height
-                        ));
                     }
                 }
                 
@@ -345,16 +307,8 @@ impl WindowManager {
                     
                     // 不变量：收起状态 ⟺ 黄线可见且主窗口在屏幕外
                     if is_collapsed && (!snap_visible || !main_is_offscreen) {
-                        debug_log(&format!(
-                            "[invariant] VIOLATION: is_collapsed=true, snap_visible={}, main_offscreen={}, main_pos=({},{}), fixing...",
-                            snap_visible, main_is_offscreen, main_pos.x, main_pos.y
-                        ));
                         manager.set_collapsed_state(&app, true);
                     } else if !is_collapsed && snap_visible {
-                        debug_log(&format!(
-                            "[invariant] VIOLATION: is_collapsed=false, snap_visible=true, main_pos=({},{}), hiding snap...",
-                            main_pos.x, main_pos.y
-                        ));
                         manager.set_collapsed_state(&app, false);
                     }
                 }
@@ -517,10 +471,6 @@ impl WindowManager {
             Err(_) => return,
         };
 
-        debug_log(&format!(
-            "[perform_snap] outer=({},{}), inner=({},{}), size=({},{})",
-            outer_pos.x, outer_pos.y, inner_pos.x, inner_pos.y, inner_size.width, inner_size.height
-        ));
 
         // 计算外框到内框的偏移（阴影边框宽度）
         let shadow_offset_x = inner_pos.x - outer_pos.x;
@@ -541,10 +491,6 @@ impl WindowManager {
         let needs_move = target_outer_x != outer_pos.x || target_outer_y != outer_pos.y;
         let scale_factor = window.scale_factor().unwrap_or(1.0);
 
-        debug_log(&format!(
-            "[perform_snap] shadow_offset=({},{}), aligned_inner=({},{}), target_outer=({},{}), needs_move={}",
-            shadow_offset_x, shadow_offset_y, aligned_inner_x, aligned_inner_y, target_outer_x, target_outer_y, needs_move
-        ));
 
         if needs_move {
             window.set_position(tauri::PhysicalPosition::new(target_outer_x, target_outer_y)).ok();
@@ -558,11 +504,6 @@ impl WindowManager {
                     let x_diff = aligned_inner_x - new_inner.x;
                     let y_diff = aligned_inner_y - new_inner.y;
                     
-                    debug_log(&format!(
-                        "[perform_snap] verify attempt {}: new_outer=({},{}), new_inner=({},{}), diff=({},{}), target_inner=({},{})",
-                        attempt, new_outer.x, new_outer.y, new_inner.x, new_inner.y,
-                        x_diff, y_diff, aligned_inner_x, aligned_inner_y
-                    ));
 
                     // 偏差超过1像素就调整
                     if x_diff.abs() <= 1 && y_diff.abs() <= 1 {
@@ -572,10 +513,6 @@ impl WindowManager {
                     let corrected_outer_x = new_outer.x + x_diff;
                     let corrected_outer_y = new_outer.y + y_diff;
                     
-                    debug_log(&format!(
-                        "[perform_snap] correcting to outer=({},{})",
-                        corrected_outer_x, corrected_outer_y
-                    ));
                     
                     window.set_position(tauri::PhysicalPosition::new(corrected_outer_x, corrected_outer_y)).ok();
                 }
@@ -587,10 +524,6 @@ impl WindowManager {
                 if let Ok(final_outer) = window.outer_position() {
                     config.x = final_outer.x as f64 / scale_factor;
                     config.y = final_outer.y as f64 / scale_factor;
-                    debug_log(&format!(
-                        "[perform_snap] saved config: outer=({},{}), logical=({},{}), scale={}",
-                        final_outer.x, final_outer.y, config.x, config.y, scale_factor
-                    ));
                 }
             }
         }
@@ -663,10 +596,6 @@ impl WindowManager {
             if target_inner_x == wa_left {
                 // 与黄线定位逻辑一致：外框 X = 屏幕左边缘 - shadow_offset
                 outer_x = wa_left - shadow_offset_x;
-                debug_log(&format!(
-                    "[calc_main_snap] LEFT edge snap: wa_left={}, shadow_x={}, outer_x={}",
-                    wa_left, shadow_offset_x, outer_x
-                ));
             }
 
             // 右边对齐：目标内框右边缘等于屏幕右边缘
@@ -676,19 +605,11 @@ impl WindowManager {
             };
             if target_inner_x + inner_width == wa_right {
                 outer_x = wa_right - inner_width - shadow_offset_x;
-                debug_log(&format!(
-                    "[calc_main_snap] RIGHT edge snap: wa_right={}, inner_w={}, shadow_x={}, outer_x={}",
-                    wa_right, inner_width, shadow_offset_x, outer_x
-                ));
             }
 
             // 顶部对齐
             if target_inner_y == wa_top {
                 outer_y = wa_top - shadow_offset_y;
-                debug_log(&format!(
-                    "[calc_main_snap] TOP edge snap: wa_top={}, shadow_y={}, outer_y={}",
-                    wa_top, shadow_offset_y, outer_y
-                ));
             }
         }
 
@@ -727,16 +648,7 @@ impl WindowManager {
         // 调试：输出所有屏幕边界信息
         for (i, m) in monitors.iter().enumerate() {
             let wa = m.work_area();
-            debug_log(&format!(
-                "[calc_snap_x] monitor[{}]: work_area=({},{} {}x{})",
-                i, wa.position.x, wa.position.y, wa.size.width, wa.size.height
-            ));
         }
-        debug_log(&format!(
-            "[calc_snap_x] input: window_x={}, window_right={}, threshold={}",
-            window_x, window_right, self.drag_threshold
-        ));
-
         // 找到窗口中心所在的屏幕索引（备用）
         let _current_monitor_index = monitors.iter().enumerate().find(|(_, m)| {
             let work_area = m.work_area();
@@ -752,10 +664,6 @@ impl WindowManager {
                 let dist_right = window_right - edge.position;
 
                 if dist_left.abs() <= self.drag_threshold || dist_right.abs() <= self.drag_threshold {
-                    debug_log(&format!(
-                        "[calc_snap_x] shared edge hit: pos={}, dist_left={}, dist_right={}, prefer_left={}",
-                        edge.position, dist_left, dist_right, dist_left >= dist_right
-                    ));
                     // 使用有符号距离判断贴边方向（保证贴边后稳定，不会反复跳动）：
                     // - dist_left >= dist_right：窗口主体在共享边左侧 → 贴到左屏幕的右边缘
                     // - dist_left < dist_right：窗口主体在共享边右侧 → 贴到右屏幕的左边缘
@@ -814,20 +722,12 @@ impl WindowManager {
 
             if let Some(left_edge) = leftmost {
                 if window_x < left_edge.position {
-                    debug_log(&format!(
-                        "[calc_snap_x] CLAMP LEFT: window_x={} < leftmost={}, snapping to {}",
-                        window_x, left_edge.position, left_edge.position
-                    ));
                     return (left_edge.position, Some(left_edge.clone()));
                 }
             }
             if let Some(right_edge) = rightmost {
                 if window_right > right_edge.position {
                     let new_x = right_edge.position - window_width as i32;
-                    debug_log(&format!(
-                        "[calc_snap_x] CLAMP RIGHT: window_right={} > rightmost={}, snapping to {}",
-                        window_right, right_edge.position, new_x
-                    ));
                     return (new_x, Some(right_edge.clone()));
                 }
             }
@@ -904,12 +804,8 @@ impl WindowManager {
         // 未贴边则跳过
         let line_edge = self.snap_line_edge.lock().unwrap().clone();
         if line_edge.is_none() {
-            debug_log("[collapse] snap_line_edge is None, skipping");
             return;
         }
-
-        debug_log(&format!("[collapse] triggered, line_edge={:?}", line_edge));
-
         let app = main_window.app_handle();
         let snap_win = match app.get_webview_window("snap_line") {
             Some(w) => w,
@@ -986,11 +882,6 @@ impl WindowManager {
             let mut config = self.config.lock().unwrap();
             config.x = precise_outer_x as f64 / scale_factor;
             config.y = precise_outer_y as f64 / scale_factor;
-            debug_log(&format!(
-                "[collapse] updated config from snap line: precise_outer=({},{}), logical=({},{}), wa=({},{},{},{})",
-                precise_outer_x, precise_outer_y, config.x, config.y,
-                wa.position.x, wa.position.y, wa.size.width, wa.size.height
-            ));
         }
         *self.collapsed_position.lock().unwrap() = 
             Some(tauri::PhysicalPosition::new(precise_outer_x, precise_outer_y));
@@ -1012,17 +903,14 @@ impl WindowManager {
             None => return,
         };
         
-        debug_log(&format!("[set_collapsed_state] collapsed={}, is_collapsed={}", collapsed, *self.is_collapsed.lock().unwrap()));
         
         if collapsed {
             // 收起：显示黄线，主窗口移到屏幕外
             let _ = snap_win.show();
             let _ = main_window.set_position(tauri::PhysicalPosition::new(-3000, -3000));
-            debug_log("[set_collapsed_state] snap_win shown, main moved to -3000,-3000");
         } else {
             // 展开：隐藏黄线，主窗口恢复位置并显示
             let _ = snap_win.hide();
-            debug_log("[set_collapsed_state] snap_win hidden");
             let _ = main_window.unminimize();
             let _ = main_window.show();
             
@@ -1030,7 +918,6 @@ impl WindowManager {
             let pos = *self.collapsed_position.lock().unwrap();
             if let Some(p) = pos {
                 let _ = main_window.set_position(p);
-                debug_log(&format!("[set_collapsed_state] main restored to ({},{})", p.x, p.y));
 
                 // 展开后验证：读取实际位置，如果有偏差则补偿调整
                 // 确保窗口精确恢复到与黄线对齐的位置
@@ -1042,10 +929,6 @@ impl WindowManager {
                     let x_diff = target_inner_x - actual_inner.x;
                     
                     if x_diff.abs() > 1 {
-                        debug_log(&format!(
-                            "[set_collapsed_state] EXPAND verify: target_inner_x={}, actual_inner={}, diff={}, correcting...",
-                            target_inner_x, actual_inner.x, x_diff
-                        ));
                         let corrected_outer = tauri::PhysicalPosition::new(actual_outer.x + x_diff, actual_outer.y);
                         let _ = main_window.set_position(corrected_outer);
                     }
@@ -1171,11 +1054,6 @@ impl WindowManager {
 
         let _ = snap_win.set_position(PhysicalPosition::new(outer_x, outer_y));
 
-        debug_log(&format!(
-            "[position_snap_line] edge={:?}, monitor={:?}, main_inner=({},{}), main_size=({},{}), snap_outer=({},{}), snap_shadow=({},{}), visible=({},{},{},{})",
-            edge, snap_monitor_index, main_inner_pos.x, main_inner_pos.y, main_inner_size.width, main_inner_size.height,
-            outer_x, outer_y, snap_shadow_x, snap_shadow_y, visible_offset_x, visible_offset_y, visible_w, visible_h
-        ));
 
         // 用 SetWindowRgn 精确裁剪窗口区域，只保留可见的黄线部分
         // visible_offset_x/y 是可见区域相对于窗口内容区左上角的偏移

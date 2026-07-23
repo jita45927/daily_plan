@@ -215,6 +215,19 @@ impl TimerManager {
         }
     }
 
+    pub fn stop_all_timers(&self) {
+        let mut timers = self.timers.lock().unwrap();
+        for (_, timer) in timers.iter_mut() {
+            timer.is_running = false;
+        }
+        timers.clear();
+    }
+
+    pub fn stop_alarm(&self) {
+        self.is_alarm_playing.store(false, Ordering::SeqCst);
+        let _ = play_sound(None, 0);
+    }
+
     pub fn get_timer_status(&self, task_id: i64) -> Option<TimerStatus> {
         let timers = self.timers.lock().unwrap();
         if let Some(timer) = timers.get(&task_id) {
