@@ -561,8 +561,8 @@ impl WindowManager {
         let window_right = window_x + window_width as i32;
         let window_center_x = window_x + (window_width / 2) as i32;
 
-        // 找到窗口中心所在的屏幕索引
-        let current_monitor_index = monitors.iter().enumerate().find(|(_, m)| {
+        // 找到窗口中心所在的屏幕索引（备用）
+        let _current_monitor_index = monitors.iter().enumerate().find(|(_, m)| {
             let work_area = m.work_area();
             let wa_pos = work_area.position;
             let wa_size = work_area.size;
@@ -576,17 +576,10 @@ impl WindowManager {
                 let dist_right = window_right - edge.position;
 
                 if dist_left.abs() <= self.drag_threshold || dist_right.abs() <= self.drag_threshold {
-                    // 判断窗口属于哪个屏幕，优先贴到窗口所在屏幕的边缘
-                    let prefer_left_edge = match current_monitor_index {
-                        Some(idx) => {
-                            // 如果窗口中心在共享边左侧（左屏幕），优先贴左屏幕的右边缘
-                            window_center_x < edge.position
-                        }
-                        None => {
-                            // 无法确定屏幕时，使用距离判断
-                            dist_left >= dist_right
-                        }
-                    };
+                    // 使用距离判断贴边方向：
+                    // - 如果窗口右边缘距离共享边更近，说明窗口正在向右跨越 → 贴到右屏幕的左边缘
+                    // - 如果窗口左边缘距离共享边更近，说明窗口正在向左跨越 → 贴到左屏幕的右边缘
+                    let prefer_left_edge = dist_left.abs() < dist_right.abs();
 
                     // 找到对应的 ScreenEdge（包含正确的 monitor_index）
                     let target_edge = edges.iter()
@@ -807,16 +800,10 @@ impl WindowManager {
                 .and_then(|monitors| monitors.get(idx).cloned())
         }).or_else(|| main_window.current_monitor().ok().flatten());
 
-        // 预先提取屏幕参数（避免多次移动 snap_monitor）
-        let screen_height = snap_monitor.as_ref()
-            .map(|m| m.work_area().size.height as i32)
-            .unwrap_or(main_inner_size.height as i32);
+        // 预先提取屏幕参数（只用于确定屏幕顶部 Y 坐标）
         let screen_top_y = snap_monitor.as_ref()
             .map(|m| m.work_area().position.y)
             .unwrap_or(main_inner_pos.y);
-        let screen_right_x = snap_monitor.as_ref()
-            .map(|m| m.work_area().position.x + m.work_area().size.width as i32)
-            .unwrap_or(main_inner_pos.x + main_inner_size.width as i32);
 
         // 贴边线厚度：5 逻辑像素（视觉大小）
         let thickness = (5.0 * scale_factor) as i32;
@@ -836,8 +823,8 @@ impl WindowManager {
             }
             LineEdge::Right(_) => {
                 // 右侧贴边：窗口向左扩展热区，可见区域在右侧，热区在左侧
-                // 使用贴边屏幕的高度而不是主窗口高度，确保黄线覆盖整个屏幕高度
-                (thickness + hotzone_extend, screen_height, hotzone_extend, 0, thickness, screen_height)
+                // 使用主窗口高度，确保黄线与窗口尺寸一致
+                (thickness + hotzone_extend, main_inner_size.height as i32, hotzone_extend, 0, thickness, main_inner_size.height as i32)
             }
         };
 
@@ -868,9 +855,10 @@ impl WindowManager {
                 (main_inner_pos.x - snap_shadow_x, screen_top_y - snap_shadow_y)
             }
             LineEdge::Right(_) => {
-                // 垂直线：可见区域右边对齐屏幕右侧，窗口向左扩展热区
-                // 使用贴边屏幕的右边缘位置，确保黄线在正确屏幕的边缘
-                (screen_right_x - window_w - snap_shadow_x, screen_top_y - snap_shadow_y)
+                // 垂直线：可见区域右边对齐窗口右侧，窗口向左扩展热区
+                // 使用主窗口的右边缘位置，确保黄线与窗口位置一致
+                let main_right = main_inner_pos.x + main_inner_size.width as i32;
+                (main_right - window_w - snap_shadow_x, screen_top_y - snap_shadow_y)
             }
         };
 
