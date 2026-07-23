@@ -38,6 +38,8 @@ const handleResetApp = () => {
       taskStore.timerStates.clear()
       taskStore.isWindowLocked = false
       taskStore.trashWindowVisible = false
+      // 重新加载回收站数据，确保与新数据库同步
+      await taskStore.loadDeletedTasks()
     } catch (error) {
       console.error('Failed to reset app:', error)
       taskStore.hideConfirm()
