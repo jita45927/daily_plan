@@ -241,6 +241,8 @@ onMounted(async () => {
   await listen('trash_context_menu_command', handleTrashContextMenuCommand)
   await listen('clean-computer-progress', taskStore.handleCleanComputerProgress)
   await listen('clean-computer-done', taskStore.handleCleanComputerDone)
+  await listen('clean-duplicate-progress', taskStore.handleCleanDuplicateProgress)
+  await listen('clean-duplicate-done', taskStore.handleCleanDuplicateDone)
   await listen('window_collapsed', () => {
     taskStore.closeMainMenu()
   })
@@ -326,6 +328,32 @@ onUnmounted(() => {
       </Transition>
     </Teleport>
 
+    <!-- 清理重复文件：非阻塞浮动徽章（不阻挡主窗口其他功能） -->
+    <Teleport to="body">
+      <Transition name="slide-fade">
+        <div
+          v-if="taskStore.isCleaningDuplicates"
+          class="fixed bottom-3 right-3 z-40 bg-orange-500 text-white rounded-lg shadow-lg px-3 py-2 max-w-[260px] no-drag"
+          style="pointer-events: auto;"
+        >
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin"></div>
+            <span class="text-xs font-semibold">清理重复文件中...</span>
+          </div>
+          <div class="text-[11px] text-white/90 leading-relaxed">
+            <div>当前: {{ taskStore.cleanDuplicateStats?.currentCategory || '初始化' }}</div>
+            <div>
+              已移 {{ taskStore.cleanDuplicateStats?.moved || 0 }} 个 ·
+              跳过 {{ taskStore.cleanDuplicateStats?.skipped || 0 }} 个
+            </div>
+            <div>
+              共扫描 {{ taskStore.cleanDuplicateStats?.scanned || 0 }} 个文件
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
     <!-- 清理电脑：完成通知（可关闭） -->
     <Teleport to="body">
       <Transition name="fade">
@@ -337,6 +365,26 @@ onUnmounted(() => {
               <button
                 @click="taskStore.hideCleanComputerNotice"
                 class="px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              >
+                确定
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 清理重复文件：完成通知（可关闭） -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="taskStore.cleanDuplicateNotice.show" class="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
+          <div class="bg-white rounded-lg p-6 shadow-xl max-w-sm mx-4">
+            <h3 class="text-lg font-semibold text-gray-800 mb-2">{{ taskStore.cleanDuplicateNotice.title }}</h3>
+            <p class="text-gray-600 mb-4 whitespace-pre-wrap text-sm">{{ taskStore.cleanDuplicateNotice.message }}</p>
+            <div class="flex justify-end">
+              <button
+                @click="taskStore.hideCleanDuplicateNotice"
+                class="px-4 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
               >
                 确定
               </button>

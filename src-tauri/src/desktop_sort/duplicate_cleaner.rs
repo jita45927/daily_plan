@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 use serde::Serialize;
+use tauri::{AppHandle, Emitter};
 use super::common::{get_desktop_path, compute_file_hash, move_to_recycle_bin};
 
 #[derive(Debug, Clone, Serialize)]
@@ -17,6 +18,16 @@ pub struct DuplicateFile {
     pub name: String,
     pub path: String,
     pub folder: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateCleanStats {
+    pub current_category: String,
+    pub scanned: usize,
+    pub moved: usize,
+    pub skipped: usize,
+    pub is_running: bool,
 }
 
 pub fn find_duplicate_files() -> Result<Vec<DuplicateFileGroup>, String> {
@@ -202,6 +213,73 @@ pub fn find_duplicate_files_cmd() -> Result<Vec<DuplicateFileGroup>, String> {
 }
 
 #[tauri::command]
-pub fn clean_duplicate_files_cmd() -> Result<(usize, usize, Vec<String>), String> {
-    clean_duplicate_files()
+pub fn clean_duplicate_files_cmd(app_handle: tauri::AppHandle) -> Result<(usize, usize, Vec<String>), String> {
+    let stats = DuplicateCleanStats {
+        current_category: "初始化...".to_string(),
+        scanned: 0,
+        moved: 0,
+        skipped: 0,
+        is_running: true,
+    };
+    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+
+    let groups = find_duplicate_files()?;
+
+    let mut stats = DuplicateCleanStats {
+        current_category: "扫描完成，正在处理...".to_string(),
+        scanned: groups.iter().map(|g| g.files.len()).sum(),
+        moved: 0,
+        skipped: 0,
+        is_running: true,
+    };
+    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+
+    let mut total_groups = 0;
+    let mut moved_count = 0;
+    let mut errors = Vec::new();
+
+    for (gi, group) in groups.iter().enumerate() {
+        if group.files.len() <= 1 {
+            continue;
+        }
+
+        total_groups += 1;
+        stats.current_category = format!("处理第 {} 组重复文件", gi + 1);
+        let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+
+        for (i, file) in group.files.iter().enumerate() {
+            if i == 0 {
+                continue;
+            }
+
+            let path = Path::new(&file.path);
+            match move_to_recycle_bin(path) {
+                Ok(()) => {
+                    moved_count += 1;
+                    stats.moved = moved_count;
+                    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+                    println!("[清理重复文件] 已移入回收站: {} ({})", file.name, file.folder);
+                }
+                Err(e) => {
+                    errors.push(format!("{}: {}", file.name, e));
+                    stats.skipped += 1;
+                    let _ = app_handle.emit("clean-duplicate-progress", stats.clone());
+                }
+            }
+        }
+    }
+
+    let stats = DuplicateCleanStats {
+        current_category: "清理完成".to_string(),
+        scanned: stats.scanned,
+        moved: moved_count,
+        skipped: stats.skipped,
+        is_running: false,
+    };
+    let _ = app_handle.emit("clean-duplicate-done", stats);
+
+    println!("[清理重复文件] 完成: {} 组重复, 移入回收站 {} 个文件, 错误 {} 个",
+        total_groups, moved_count, errors.len());
+
+    Ok((total_groups, moved_count, errors))
 }

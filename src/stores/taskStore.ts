@@ -141,6 +141,21 @@ export const useTaskStore = defineStore('tasks', () => {
     message: ''
   })
 
+  // 清理重复文件状态
+  const isCleaningDuplicates = ref(false)
+  const cleanDuplicateStats = ref({
+    currentCategory: '',
+    scanned: 0,
+    moved: 0,
+    skipped: 0,
+    isRunning: false
+  })
+  const cleanDuplicateNotice = ref({
+    show: false,
+    title: '',
+    message: ''
+  })
+
   // 计算属性
   const incompleteTasks = computed(() => tasks.value.filter(t => !t.status).sort((a, b) => a.orderIndex - b.orderIndex))
   const completedTasks = computed(() => tasks.value.filter(t => t.status).sort((a, b) => a.orderIndex - b.orderIndex))
@@ -883,7 +898,30 @@ export const useTaskStore = defineStore('tasks', () => {
     cleanComputerNotice.value = { show: false, title: '', message: '' }
   }
 
-  return {
+  // 清理重复文件进度处理
+  const handleCleanDuplicateProgress = (event: { payload: typeof cleanDuplicateStats.value }) => {
+    isCleaningDuplicates.value = true
+    cleanDuplicateStats.value = event.payload
+  }
+
+  // 清理重复文件完成处理
+  const handleCleanDuplicateDone = (event: { payload: typeof cleanDuplicateStats.value }) => {
+    const stats = event.payload
+    isCleaningDuplicates.value = false
+    cleanDuplicateStats.value.isRunning = false
+
+    cleanDuplicateNotice.value = {
+      show: true,
+      title: '清理完成',
+      message: `扫描 ${stats.scanned} 个文件\n已移入回收站 ${stats.moved} 个\n跳过 ${stats.skipped} 个（占用/权限）`
+    }
+  }
+
+  const hideCleanDuplicateNotice = () => {
+    cleanDuplicateNotice.value = { show: false, title: '', message: '' }
+  }
+
+  // 暴露方法和状态return {
     // 任务状态
     tasks,
     isWindowLocked,
@@ -974,6 +1012,14 @@ export const useTaskStore = defineStore('tasks', () => {
     startCleanComputer,
     handleCleanComputerProgress,
     handleCleanComputerDone,
-    hideCleanComputerNotice
+    hideCleanComputerNotice,
+    
+    // 清理重复文件方法
+    isCleaningDuplicates,
+    cleanDuplicateStats,
+    cleanDuplicateNotice,
+    handleCleanDuplicateProgress,
+    handleCleanDuplicateDone,
+    hideCleanDuplicateNotice
   }
 })
