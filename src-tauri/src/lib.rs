@@ -84,29 +84,30 @@ fn reset_app_cmd(window: tauri::Window) -> Result<bool, String> {
     
     println!("[重置程序] 数据库已重置");
 
-    let primary_monitor = window.app_handle().primary_monitor()
-        .map_err(|e| format!("获取主屏幕信息失败: {}", e))?
-        .ok_or_else(|| "无法获取主屏幕信息".to_string())?;
-    let work_area = primary_monitor.work_area();
-    let center_x = (work_area.size.width as f64 - 300.0) / 2.0 + work_area.position.x as f64;
-    let center_y = (work_area.size.height as f64 - 600.0) / 2.0 + work_area.position.y as f64;
-
-    save_db_window_config(center_x, center_y, 600.0, false).map_err(|e| e.to_string())?;
-
     let manager = window.app_handle().state::<Arc<WindowManager>>();
     
     // 先重置贴边状态（确保窗口展开）
     manager.reset_snap_state(&window);
     
-    // 更新配置
+    // 将窗口移到主屏幕正中央（使用物理坐标）
+    manager.move_to_primary_monitor_center(&window)?;
+    
+    // 获取当前窗口大小
+    let window_size = match window.inner_size() {
+        Ok(s) => s,
+        Err(e) => return Err(format!("获取窗口大小失败: {}", e)),
+    };
+    
+    // 更新配置（使用逻辑坐标存储）
     let mut default_config = window::WindowConfigData::default();
-    default_config.x = center_x;
-    default_config.y = center_y;
-    default_config.height = 600.0;
+    default_config.width = window_size.width as f64;
+    default_config.height = window_size.height as f64;
+    let config_height = default_config.height;
     manager.save_config(default_config);
     
-    // 应用配置到窗口
-    manager.apply_config_to_window(&window);
+    // 保存到数据库
+    save_db_window_config(0.0, 0.0, config_height, false)
+        .map_err(|e| e.to_string())?;
     
     // 确保窗口可见并在顶层
     let _ = window.show();
@@ -297,25 +298,11 @@ pub fn run() {
             
             let mut config = manager.get_config();
             
-            // 程序每次运行都恢复到主显示器正中央和初始尺寸（300x600）
-            // 解决多屏幕适配问题：如果上次在第二屏幕，重新打开时能看到窗口
-            let (center_x, center_y) = if let Ok(Some(primary_monitor)) = app.primary_monitor() {
-                let work_area = primary_monitor.work_area();
-                let cx = (work_area.size.width as f64 - 300.0) / 2.0 + work_area.position.x as f64;
-                let cy = (work_area.size.height as f64 - 600.0) / 2.0 + work_area.position.y as f64;
-                (cx, cy)
-            } else {
-                (0.0, 0.0)
-            };
-            
             // 强制重置位置和尺寸
-            config.x = center_x;
-            config.y = center_y;
             config.width = 300.0;
             config.height = 600.0;
             config.is_locked = false;
             manager.save_config(config);
-            save_db_window_config(center_x, center_y, 600.0, false).ok();
             
             let window = app.get_window("main").unwrap_or_else(|| {
                 tauri::WindowBuilder::new(app, "main")
@@ -328,7 +315,17 @@ pub fn run() {
                     .expect("failed to create window")
             });
             
-            manager.apply_config_to_window(&window);
+            // 将窗口移到主屏幕正中央（使用物理坐标，确保在不同分辨率和多屏幕环境下准确）
+            if let Ok(()) = manager.move_to_primary_monitor_center(&window) {
+                let primary_monitor = app.primary_monitor();
+                if let Ok(Some(monitor)) = primary_monitor {
+                    let work_area = monitor.work_area();
+                    let cx = (work_area.size.width as f64 - 300.0) / 2.0 + work_area.position.x as f64;
+                    let cy = (work_area.size.height as f64 - 600.0) / 2.0 + work_area.position.y as f64;
+                    save_db_window_config(cx, cy, 600.0, false).ok();
+                }
+            }
+            
             WindowManager::setup_window_events(manager.inner().clone(), &window);
 
             // 初始化时自动贴边对齐

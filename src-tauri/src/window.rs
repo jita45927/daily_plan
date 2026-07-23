@@ -392,17 +392,33 @@ impl WindowManager {
     pub fn reset_snap_state<R: Runtime>(&self, window: &Window<R>) {
         *self.snap_line_edge.lock().unwrap() = None;
         *self.is_collapsed.lock().unwrap() = false;
-
-        // 如果窗口在屏幕外，移回原来的位置
-        let pos = *self.collapsed_position.lock().unwrap();
-        if let Some(p) = pos {
-            let _ = window.set_position(p);
-            *self.collapsed_position.lock().unwrap() = None;
-        }
+        *self.collapsed_position.lock().unwrap() = None;
+        *self.mouse_was_in_window.lock().unwrap() = false;
 
         if let Some(snap_win) = window.app_handle().get_webview_window("snap_line") {
             let _ = snap_win.hide();
         }
+    }
+
+    /// 将窗口移到主屏幕正中央
+    pub fn move_to_primary_monitor_center<R: Runtime>(&self, window: &Window<R>) -> Result<(), String> {
+        let primary_monitor = window.app_handle().primary_monitor()
+            .map_err(|e| format!("获取主屏幕信息失败: {}", e))?
+            .ok_or_else(|| "无法获取主屏幕信息".to_string())?;
+        
+        let work_area = primary_monitor.work_area();
+        let window_size = match window.inner_size() {
+            Ok(s) => s,
+            Err(e) => return Err(format!("获取窗口大小失败: {}", e)),
+        };
+        
+        // 使用物理坐标计算主屏幕中央位置
+        let center_x = (work_area.size.width as i32 - window_size.width as i32) / 2 + work_area.position.x;
+        let center_y = (work_area.size.height as i32 - window_size.height as i32) / 2 + work_area.position.y;
+        
+        let _ = window.set_position(tauri::PhysicalPosition::new(center_x, center_y));
+        
+        Ok(())
     }
 
     fn perform_snap<R: Runtime>(&self, window: &Window<R>) {
