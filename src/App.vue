@@ -45,15 +45,14 @@ const handleMouseDown = (e: MouseEvent) => {
 const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') => {
   e.preventDefault()
   e.stopPropagation()
-  const startY = e.screenY
+  // 使用 clientY（逻辑像素坐标），与后端返回的逻辑像素坐标保持一致
+  const startY = e.clientY
 
   const pos = await invoke('get_window_position') as [number, number, number, number]
   const startX = pos[0]
   const startYPos = pos[1]
   const startWidth = pos[2]
   const startHeight = pos[3]
-
-  const devicePixelRatio = window.devicePixelRatio || 1
 
   let rafId: number | null = null
   let isInvoking = false
@@ -76,7 +75,8 @@ const handleResizeStart = async (e: MouseEvent, direction: 'north' | 'south') =>
   }
 
   const handleMouseMove = (e: MouseEvent) => {
-    const delta = (e.screenY - startY) / devicePixelRatio
+    // 使用 clientY（逻辑像素坐标），与 startY 保持一致，无需额外缩放
+    const delta = e.clientY - startY
 
     if (direction === 'south') {
       targetHeight = Math.max(300, Math.min(startHeight + delta, 9999))
