@@ -576,10 +576,11 @@ impl WindowManager {
                 let dist_right = window_right - edge.position;
 
                 if dist_left.abs() <= self.drag_threshold || dist_right.abs() <= self.drag_threshold {
-                    // 使用距离判断贴边方向：
-                    // - 如果窗口右边缘距离共享边更近，说明窗口正在向右跨越 → 贴到右屏幕的左边缘
-                    // - 如果窗口左边缘距离共享边更近，说明窗口正在向左跨越 → 贴到左屏幕的右边缘
-                    let prefer_left_edge = dist_left.abs() < dist_right.abs();
+                    // 使用有符号距离判断贴边方向（保证贴边后稳定，不会反复跳动）：
+                    // - dist_left >= dist_right：窗口主体在共享边左侧 → 贴到左屏幕的右边缘
+                    // - dist_left < dist_right：窗口主体在共享边右侧 → 贴到右屏幕的左边缘
+                    // 贴边后距离关系保持不变，因此不会产生抖动
+                    let prefer_left_edge = dist_left >= dist_right;
 
                     // 找到对应的 ScreenEdge（包含正确的 monitor_index）
                     let target_edge = edges.iter()
@@ -800,7 +801,7 @@ impl WindowManager {
                 .and_then(|monitors| monitors.get(idx).cloned())
         }).or_else(|| main_window.current_monitor().ok().flatten());
 
-        // 预先提取屏幕参数（只用于确定屏幕顶部 Y 坐标）
+        // 预先提取屏幕顶部 Y（仅用于顶部贴边时对齐屏幕顶部）
         let screen_top_y = snap_monitor.as_ref()
             .map(|m| m.work_area().position.y)
             .unwrap_or(main_inner_pos.y);
@@ -819,11 +820,12 @@ impl WindowManager {
             }
             LineEdge::Left(_) => {
                 // 左侧贴边：窗口向右扩展热区，可见区域在左侧，热区在右侧
+                // 高度与主窗口一致，确保黄线尺寸与窗口对齐
                 (thickness + hotzone_extend, main_inner_size.height as i32, 0, 0, thickness, main_inner_size.height as i32)
             }
             LineEdge::Right(_) => {
                 // 右侧贴边：窗口向左扩展热区，可见区域在右侧，热区在左侧
-                // 使用主窗口高度，确保黄线与窗口尺寸一致
+                // 高度与主窗口一致，确保黄线尺寸与窗口对齐
                 (thickness + hotzone_extend, main_inner_size.height as i32, hotzone_extend, 0, thickness, main_inner_size.height as i32)
             }
         };
@@ -845,20 +847,21 @@ impl WindowManager {
         let snap_shadow_y = snap_inner.y - snap_outer.y;
 
         // 计算目标位置：让可见区域精确贴边，热区向屏幕内部扩展
+        // 关键：左右贴边时 Y 坐标与主窗口对齐（main_inner_pos.y），
+        //       顶部贴边时 Y 坐标与屏幕顶部对齐（screen_top_y）
         let (outer_x, outer_y) = match edge {
             LineEdge::Top(_) => {
                 // 水平线：可见区域 y 对齐屏幕顶部，窗口从顶部开始向下扩展
                 (main_inner_pos.x - snap_shadow_x, screen_top_y - snap_shadow_y)
             }
             LineEdge::Left(_) => {
-                // 垂直线：可见区域 x 对齐屏幕左侧，窗口从左侧开始向右扩展
-                (main_inner_pos.x - snap_shadow_x, screen_top_y - snap_shadow_y)
+                // 垂直线：可见区域 x 对齐窗口左侧，y 与主窗口对齐
+                (main_inner_pos.x - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
             }
             LineEdge::Right(_) => {
-                // 垂直线：可见区域右边对齐窗口右侧，窗口向左扩展热区
-                // 使用主窗口的右边缘位置，确保黄线与窗口位置一致
+                // 垂直线：可见区域右边对齐窗口右侧，y 与主窗口对齐
                 let main_right = main_inner_pos.x + main_inner_size.width as i32;
-                (main_right - window_w - snap_shadow_x, screen_top_y - snap_shadow_y)
+                (main_right - window_w - snap_shadow_x, main_inner_pos.y - snap_shadow_y)
             }
         };
 
