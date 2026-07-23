@@ -380,6 +380,8 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   const openContextMenu = (x: number, y: number, taskId: number) => {
+    // 打开右键菜单前，先关闭左键菜单
+    closeMainMenu()
     contextMenu.value = { show: true, x, y, taskId }
   }
 
@@ -388,6 +390,8 @@ export const useTaskStore = defineStore('tasks', () => {
   }
 
   const openMainMenu = (x: number, y: number) => {
+    // 打开左键菜单前，先关闭右键菜单
+    closeContextMenu()
     mainMenu.value = { show: true, x, y }
     invoke('set_main_menu_open', { open: true }).catch(() => {})
   }

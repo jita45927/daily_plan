@@ -17,18 +17,23 @@ const handleMouseDown = (e: MouseEvent) => {
     return
   }
 
+  const target = e.target as HTMLElement
+  
+  // 检查点击是否在左键菜单内部
+  const isInMainMenu = target.closest('.main-menu') !== null
+  
+  // 如果不在左键菜单内部，关闭左键菜单
+  if (!isInMainMenu && taskStore.mainMenu.show) {
+    taskStore.closeMainMenu()
+  }
+  
+  // 关闭右键菜单
   invoke('close_context_menu').then(() => {
   }).catch(() => {
   })
   
-  const target = e.target as HTMLElement
   const noDragEl = target.closest('button, input, [contenteditable], .no-drag')
   if (noDragEl) {
-    return
-  }
-
-  if (taskStore.mainMenu.show) {
-    taskStore.closeMainMenu()
     return
   }
   

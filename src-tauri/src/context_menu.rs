@@ -185,6 +185,10 @@ pub fn show_context_menu<R: Runtime>(
     task: ContextMenuTask,
 ) {
     let app = window.app_handle();
+    
+    // 显示右键菜单前，先关闭所有其他菜单（包括回收站右键菜单）
+    close_all_menus(&app);
+    
     let manager = app.state::<Arc<ContextMenuManager>>();
     manager.set_current_task(task.clone());
 
@@ -248,11 +252,21 @@ pub fn show_context_menu<R: Runtime>(
     }
 }
 
-#[tauri::command]
-pub fn close_context_menu<R: Runtime>(window: Window<R>) {
-    if let Some(win) = window.app_handle().get_webview_window("context_menu") {
+/// 关闭所有菜单窗口（用于统一管理菜单显示状态）
+pub fn close_all_menus<R: Runtime>(app: &tauri::AppHandle<R>) {
+    // 关闭主窗口右键菜单
+    if let Some(win) = app.get_webview_window("context_menu") {
         let _ = win.hide();
     }
+    // 关闭回收站右键菜单
+    if let Some(win) = app.get_webview_window("trash_context_menu") {
+        let _ = win.hide();
+    }
+}
+
+#[tauri::command]
+pub fn close_context_menu<R: Runtime>(window: Window<R>) {
+    close_all_menus(&window.app_handle());
 }
 
 #[tauri::command]
@@ -319,6 +333,10 @@ pub fn show_trash_context_menu<R: Runtime>(
     task_id: i64,
 ) {
     let app = window.app_handle();
+    
+    // 显示回收站右键菜单前，先关闭所有其他菜单（包括主窗口右键菜单）
+    close_all_menus(&app);
+    
     let manager = app.state::<Arc<ContextMenuManager>>();
     manager.set_current_trash_task_id(task_id);
 
