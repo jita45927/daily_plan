@@ -92,10 +92,14 @@ const handleCleanDuplicateFiles = () => {
         await invoke('clean_duplicate_files_cmd')
       } catch (error: any) {
         console.error('[清理重复文件] 失败:', error)
-        taskStore.showErrorAlert(
-          '清理失败',
-          '清理重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
-        )
+        // 如果 isCleaningDuplicates 已经是 false，说明 done 事件已经处理了错误通知
+        // 避免显示两个错误弹窗
+        if (taskStore.isCleaningDuplicates) {
+          taskStore.showErrorAlert(
+            '清理失败',
+            '清理重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
+          )
+        }
       }
     }
   )
@@ -137,10 +141,14 @@ const handleCleanFolderDuplicates = async () => {
       await invoke('clean_duplicate_files_for_folder_cmd', { folderPath: path })
     } catch (error: any) {
       console.error('[清理文件夹重复文件] 失败:', error)
-      taskStore.showErrorAlert(
-        '清理失败',
-        '清理文件夹重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
-      )
+      // 如果 isCleaningDuplicates 已经是 false，说明 done 事件已经处理了错误通知
+      // 避免显示两个错误弹窗
+      if (taskStore.isCleaningDuplicates) {
+        taskStore.showErrorAlert(
+          '清理失败',
+          '清理文件夹重复文件失败:\n' + (error?.message || error?.toString() || '未知错误')
+        )
+      }
     }
   }
 
